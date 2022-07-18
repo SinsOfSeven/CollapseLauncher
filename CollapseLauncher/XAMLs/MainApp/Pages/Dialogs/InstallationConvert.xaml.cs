@@ -1,4 +1,5 @@
 ﻿using Hi3Helper.Data;
+using Hi3Helper.Http;
 using Hi3Helper.Preset;
 using Hi3Helper.Shared.ClassStruct;
 using Microsoft.UI.Xaml;
@@ -139,7 +140,7 @@ namespace CollapseLauncher.Dialogs
             RegionResourceProp _Entry;
             using (MemoryStream s = new MemoryStream())
             {
-                await new HttpClientHelper().DownloadFileAsync(Profile.LauncherResourceURL, s, tokenSource.Token, null, null, false);
+                await new Http().DownloadStream(Profile.LauncherResourceURL, s, tokenSource.Token);
                 _Entry = JsonConvert.DeserializeObject<RegionResourceProp>(Encoding.UTF8.GetString(s.ToArray()));
             }
 
@@ -157,7 +158,7 @@ namespace CollapseLauncher.Dialogs
                 return false;
 
             SourceIniFile = new IniFile();
-            SourceIniFile.Load(new FileStream(INIPath, FileMode.Open, FileAccess.Read));
+            SourceIniFile.Load(INIPath);
             try
             {
                 GamePath = NormalizePath(SourceIniFile["launcher"]["game_install_path"].ToString());
@@ -426,7 +427,6 @@ namespace CollapseLauncher.Dialogs
             string IniPath = Path.Combine(AppGameFolder, TargetProfile.ProfileName);
             gameIni.ProfilePath = Path.Combine(IniPath, "config.ini");
             gameIni.Profile = new IniFile();
-            gameIni.ProfileStream = new FileStream(gameIni.ProfilePath, FileMode.Create, FileAccess.ReadWrite);
             BuildGameIniProfile();
 
             SetAndSaveConfigValue("CurrentRegion", ConfigStore.Config.FindIndex(x => x.ProfileName == TargetProfile.ProfileName));

@@ -9,6 +9,8 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Windows.Graphics;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 using WinRT.Interop;
 using static CollapseLauncher.InnerLauncherConfig;
 using static Hi3Helper.InvokeProp;
@@ -24,7 +26,6 @@ namespace CollapseLauncher
             try
             {
                 this.InitializeComponent();
-                InitializeWindowSettings();
 
                 string title = $"Collapse Launcher - v{AppCurrentVersion} ";
                 if (IsPreview)
@@ -33,9 +34,17 @@ namespace CollapseLauncher
                 this.Title = title += "[DEBUG]";
 #endif
                 if (IsFirstInstall)
-                    rootFrame.Navigate(typeof(Pages.StartupPage), null, new DrillInNavigationTransitionInfo());
+                {
+                    TryInitWindowHandler();
+                    ExtendsContentIntoTitleBar = false;
+                    SetWindowSize(m_windowHandle, 360, 230);
+                    SetLegacyTitleBarColor();
+                    m_presenter.IsResizable = false;
+                    m_presenter.IsMaximizable = false;
+                    rootFrame.Navigate(typeof(StartupLanguageSelect), null, new DrillInNavigationTransitionInfo());
+                }
                 else
-                    rootFrame.Navigate(typeof(MainPage), null, new DrillInNavigationTransitionInfo());
+                    StartMainPage();
             }
             catch (Exception ex)
             {
@@ -44,7 +53,19 @@ namespace CollapseLauncher
             }
         }
 
-        public void InitializeWindowSettings()
+        public void StartSetupPage()
+        {
+            InitializeWindowSettings();
+            rootFrame.Navigate(typeof(Pages.StartupPage), null, new DrillInNavigationTransitionInfo());
+        }
+
+        public void StartMainPage()
+        {
+            InitializeWindowSettings();
+            rootFrame.Navigate(typeof(MainPage), null, new DrillInNavigationTransitionInfo());
+        }
+
+        public void TryInitWindowHandler()
         {
             m_backDrop = new BackdropManagement(this);
             m_wsdqHelper = new WindowsSystemDispatcherQueueHelper();
@@ -53,8 +74,12 @@ namespace CollapseLauncher
 
             m_AppWindow = GetAppWindowForCurrentWindow();
             m_AppWindow.Changed += AppWindow_Changed;
+        }
 
-            SetWindowSize(m_windowHandle, 1280, 730);
+        public void InitializeWindowSettings()
+        {
+            TryInitWindowHandler();
+            SetWindowSize(m_windowHandle);
 
             // Check to see if customization is supported.
             // Currently only supported on Windows 11.
@@ -62,6 +87,8 @@ namespace CollapseLauncher
             {
 #if MICA
                 m_backDrop.SetBackdrop(BackdropType.Mica);
+#elif DISABLETRANSPARENT
+                m_backDrop.SetBackdrop(BackdropType.DefaultColor);
 #else
                 m_backDrop.SetBackdrop(BackdropType.DesktopAcrylic);
 #endif
@@ -90,7 +117,11 @@ namespace CollapseLauncher
             }
             else
             {
+#if DISABLETRANSPARENT
+                m_backDrop.SetBackdrop(BackdropType.DefaultColor);
+#else
                 m_backDrop.SetBackdrop(BackdropType.DesktopAcrylic);
+#endif
                 SetThemeParameters();
                 m_presenter.IsResizable = false;
                 m_presenter.IsMaximizable = false;
@@ -100,23 +131,27 @@ namespace CollapseLauncher
                 AppTitleBar.Visibility = Visibility.Collapsed;
                 CustomTitleBar.Visibility = Visibility.Visible;
                 SetTitleBar(CustomTitleBar);
-
-                switch (GetAppTheme())
-                {
-                    case ApplicationTheme.Light:
-                        Application.Current.Resources["WindowCaptionForeground"] = new Windows.UI.Color { A = 255, B = 0, G = 0, R = 0 };
-                        break;
-                    case ApplicationTheme.Dark:
-                        Application.Current.Resources["WindowCaptionForeground"] = new Windows.UI.Color { A = 255, B = 255, G = 255, R = 255 };
-                        break;
-                }
-
-                Application.Current.Resources["WindowCaptionBackground"] = new SolidColorBrush(new Windows.UI.Color { A = 0, B = 0, G = 0, R = 0 });
-                Application.Current.Resources["WindowCaptionBackgroundDisabled"] = new SolidColorBrush(new Windows.UI.Color { A = 0, B = 0, G = 0, R = 0 });
+                SetLegacyTitleBarColor();
             }
 
             MainFrameChangerInvoker.WindowFrameEvent += MainFrameChangerInvoker_WindowFrameEvent;
             LauncherUpdateInvoker.UpdateEvent += LauncherUpdateInvoker_UpdateEvent;
+        }
+
+        private void SetLegacyTitleBarColor()
+        {
+            switch (GetAppTheme())
+            {
+                case ApplicationTheme.Light:
+                    Application.Current.Resources["WindowCaptionForeground"] = new Windows.UI.Color { A = 255, B = 0, G = 0, R = 0 };
+                    break;
+                case ApplicationTheme.Dark:
+                    Application.Current.Resources["WindowCaptionForeground"] = new Windows.UI.Color { A = 255, B = 255, G = 255, R = 255 };
+                    break;
+            }
+
+            Application.Current.Resources["WindowCaptionBackground"] = new SolidColorBrush(new Windows.UI.Color { A = 0, B = 0, G = 0, R = 0 });
+            Application.Current.Resources["WindowCaptionBackgroundDisabled"] = new SolidColorBrush(new Windows.UI.Color { A = 0, B = 0, G = 0, R = 0 });
         }
 
         private void LauncherUpdateInvoker_UpdateEvent(object sender, LauncherUpdateProperty e)
@@ -124,14 +159,12 @@ namespace CollapseLauncher
             if (e.QuitFromUpdateMenu)
             {
                 overlayFrame.Navigate(typeof(Pages.NullPage), null, new EntranceNavigationTransitionInfo());
-                HideRootFrame(false);
                 return;
             }
 
             if (e.IsUpdateAvailable)
             {
                 overlayFrame.Navigate(typeof(Pages.UpdatePage));
-                HideRootFrame(true);
             }
         }
 
@@ -153,12 +186,22 @@ namespace CollapseLauncher
             await Task.Delay(250);
         }
 
+        public async Task<StorageFolder> GetFolderPicker()
+        {
+            FolderPicker folderPicker = new FolderPicker();
+
+            folderPicker.FileTypeFilter.Add("*");
+            InitializeWithWindow.Initialize(folderPicker, m_windowHandle);
+
+            return await folderPicker.PickSingleFolderAsync();
+        }
+
         private void MainFrameChangerInvoker_WindowFrameEvent(object sender, MainFrameProperties e)
         {
             rootFrame.Navigate(e.FrameTo, null, e.Transition);
         }
 
-        public void SetWindowSize(IntPtr hwnd, int width, int height, int x = 0, int y = 0)
+        public void SetWindowSize(IntPtr hwnd, int width = 1280, int height = 730, int x = 0, int y = 0)
         {
             var dpi = GetDpiForWindow(hwnd);
             float scalingFactor = (float)dpi / 96;
@@ -271,7 +314,7 @@ namespace CollapseLauncher
                     m_presenter.Restore();
 
                 sender.Move(LastPos);
-                SetWindowSize(m_windowHandle, 1280, 730);
+                SetWindowSize(m_windowHandle);
             }
 
             if (!(m_AppWindow.Position.X < 0 || m_AppWindow.Position.Y < 0))

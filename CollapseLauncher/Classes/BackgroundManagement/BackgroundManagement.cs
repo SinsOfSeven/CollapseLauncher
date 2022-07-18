@@ -1,26 +1,24 @@
 ﻿using ColorThiefDotNet;
 using Hi3Helper.Data;
 using Hi3Helper.Shared.ClassStruct;
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
+using Hi3Helper.Http;
 using static CollapseLauncher.InnerLauncherConfig;
+using static Hi3Helper.Locale;
 using static Hi3Helper.Logger;
 using static Hi3Helper.Shared.Region.LauncherConfig;
 
@@ -34,41 +32,155 @@ namespace CollapseLauncher
         private readonly Size ThumbnailSize = new Size(32, 32);
         private async Task ChangeBackgroundImageAsRegion(CancellationToken token)
         {
-            try
+            regionBackgroundProp = CurrentRegion.LauncherSpriteURLMultiLang ?
+                await TryGetMultiLangResourceProp(token) :
+                await TryGetSingleLangResourceProp(token);
+
+            regionBackgroundProp.imgLocalPath = Path.Combine(AppGameImgFolder, "bg", Path.GetFileName(regionBackgroundProp.data.adv.background));
+            SetAndSaveConfigValue("CurrentBackground", regionBackgroundProp.imgLocalPath);
+
+            await DownloadBackgroundImage();
+
+            if (GetAppConfigValue("UseCustomBG").ToBool())
             {
-                httpHelper = new HttpClientHelper(true);
+                string BGPath = GetAppConfigValue("CustomBGPath").ToString();
+                if (string.IsNullOrEmpty(BGPath))
+                    regionBackgroundProp.imgLocalPath = AppDefaultBG;
+                else
+                    regionBackgroundProp.imgLocalPath = BGPath;
+            }
 
-                MemoryStream memoryStream = new MemoryStream();
+            BackgroundImgChanger.ChangeBackground(regionBackgroundProp.imgLocalPath);
+            await BackgroundImgChanger.WaitForBackgroundToLoad();
 
-                await httpHelper.DownloadFileAsync(CurrentRegion.LauncherSpriteURL, memoryStream, token);
-                regionBackgroundProp = JsonConvert.DeserializeObject<RegionBackgroundProp>(Encoding.UTF8.GetString(memoryStream.ToArray()));
+            await GetLauncherAdvInfo(token);
+            await GetLauncherCarouselInfo(token);
+            await GetLauncherEventInfo(token);
+            GetLauncherPostInfo();
 
-                regionBackgroundProp.imgLocalPath = Path.Combine(AppGameImgFolder, "bg", Path.GetFileName(regionBackgroundProp.data.adv.background));
-                SetAndSaveConfigValue("CurrentBackground", regionBackgroundProp.imgLocalPath);
+            ReloadPageTheme(ConvertAppThemeToElementTheme(CurrentAppTheme));
+        }
 
-                await DownloadBackgroundImage();
-
-                if (GetAppConfigValue("UseCustomBG").ToBool())
+        bool PassFirstTry = false;
+        public async Task<RegionResourceProp> TryGetMultiLangResourceProp(CancellationToken token)
+        {
+            RegionResourceProp ret = new RegionResourceProp();
+            bool NoData = true;
+            using (MemoryStream memoryStream = new MemoryStream())
+            {
+                if (!PassFirstTry)
                 {
-                    string BGPath = GetAppConfigValue("CustomBGPath").ToString();
-                    if (string.IsNullOrEmpty(BGPath))
-                        regionBackgroundProp.imgLocalPath = AppDefaultBG;
-                    else
-                        regionBackgroundProp.imgLocalPath = BGPath;
+                    await httpHelper.DownloadStream(string.Format(CurrentRegion.LauncherSpriteURL, Lang.LanguageID.ToLower()), memoryStream, token);
+                    ret = JsonConvert.DeserializeObject<RegionResourceProp>(Encoding.UTF8.GetString(memoryStream.GetBuffer()));
+
+                    NoData = ret.data.adv == null;
                 }
 
-                BackgroundImgChanger.ChangeBackground(regionBackgroundProp.imgLocalPath);
-                await BackgroundImgChanger.WaitForBackgroundToLoad();
-                ReloadPageTheme(ConvertAppThemeToElementTheme(CurrentAppTheme));
+                if (NoData)
+                {
+                    PassFirstTry = true;
+                    await httpHelper.DownloadStream(string.Format(CurrentRegion.LauncherSpriteURL, CurrentRegion.LauncherSpriteURLMultiLangFallback), memoryStream, token);
+                    ret = JsonConvert.DeserializeObject<RegionResourceProp>(Encoding.UTF8.GetString(memoryStream.GetBuffer()));
+                }
             }
-            catch (OperationCanceledException)
+
+            PassFirstTry = false;
+
+            return ret;
+        }
+
+        public async Task<RegionResourceProp> TryGetSingleLangResourceProp(CancellationToken token)
+        {
+            RegionResourceProp ret = new RegionResourceProp();
+            using (MemoryStream memoryStream = new MemoryStream())
             {
-                throw new OperationCanceledException($"Background Image fetch canceled!");
+                await httpHelper.DownloadStream(CurrentRegion.LauncherSpriteURL, memoryStream, token);
+                ret = JsonConvert.DeserializeObject<RegionResourceProp>(Encoding.UTF8.GetString(memoryStream.GetBuffer()));
             }
-            catch (Exception ex)
+
+            return ret;
+        }
+
+        public void ResetRegionProp()
+        {
+            regionNewsProp.sideMenuPanel = null;
+            regionNewsProp.imageCarouselPanel = null;
+            regionNewsProp.articlePanel = null;
+            regionNewsProp.eventPanel = null;
+        }
+
+        public async Task GetLauncherAdvInfo(CancellationToken token)
+        {
+            if (regionBackgroundProp.data.icon.Count == 0) return;
+
+            regionNewsProp.sideMenuPanel = new List<MenuPanelProp>();
+            foreach (RegionSocMedProp item in regionBackgroundProp.data.icon)
+                regionNewsProp.sideMenuPanel.Add(new MenuPanelProp
+                {
+                    URL = item.url,
+                    Icon = await GetCachedSprites(item.img),
+                    IconHover = await GetCachedSprites(item.img_hover),
+                    QR = string.IsNullOrEmpty(item.qr_img) ? null : await GetCachedSprites(item.qr_img),
+                    QR_Description = string.IsNullOrEmpty(item.qr_desc) ? null : item.qr_desc,
+                    Description = string.IsNullOrEmpty(item.title) || CurrentRegion.IsHideSocMedDesc ? item.url : item.title
+                });
+        }
+
+        public async Task GetLauncherCarouselInfo(CancellationToken token)
+        {
+            if (regionBackgroundProp.data.banner.Count == 0) return;
+
+            regionNewsProp.imageCarouselPanel = new List<MenuPanelProp>();
+            foreach (RegionSocMedProp item in regionBackgroundProp.data.banner)
+                regionNewsProp.imageCarouselPanel.Add(new MenuPanelProp
+                {
+                    URL = item.url,
+                    Icon = await GetCachedSprites(item.img),
+                    Description = string.IsNullOrEmpty(item.name) ? item.url : item.name
+                });
+        }
+
+        public async Task GetLauncherEventInfo(CancellationToken token)
+        {
+            if (string.IsNullOrEmpty(regionBackgroundProp.data.adv.icon)) return;
+
+            regionNewsProp.eventPanel = new RegionBackgroundProp
             {
-                LogWriteLine($"Something wrong happen while fetching Background Image\r\n{ex}");
-            }
+                url = regionBackgroundProp.data.adv.url,
+                icon = await GetCachedSprites(regionBackgroundProp.data.adv.icon)
+            };
+        }
+
+        public void GetLauncherPostInfo()
+        {
+            if (regionBackgroundProp.data.post.Count == 0) return;
+
+            regionNewsProp.articlePanel = new PostCarouselTypes();
+            foreach (RegionSocMedProp item in regionBackgroundProp.data.post)
+                switch (item.type)
+                {
+                    case PostCarouselType.POST_TYPE_ACTIVITY:
+                        regionNewsProp.articlePanel.Events.Add(item);
+                        break;
+                    case PostCarouselType.POST_TYPE_ANNOUNCE:
+                        regionNewsProp.articlePanel.Notices.Add(item);
+                        break;
+                    case PostCarouselType.POST_TYPE_INFO:
+                        regionNewsProp.articlePanel.Info.Add(item);
+                        break;
+                }
+        }
+
+        public async Task<string> GetCachedSprites(string URL, CancellationToken token = new CancellationToken())
+        {
+            string cacheFolder = Path.Combine(AppGameImgFolder, "cache");
+            string cachePath = Path.Combine(cacheFolder, Path.GetFileNameWithoutExtension(URL));
+            if (!Directory.Exists(cacheFolder))
+                Directory.CreateDirectory(cacheFolder);
+
+            if (!File.Exists(cachePath)) await httpHelper.Download(URL, cachePath, token);
+
+            return cachePath;
         }
 
         private void ApplyAccentColor()
@@ -229,7 +341,10 @@ namespace CollapseLauncher
             FileInfo fI = new FileInfo(regionBackgroundProp.imgLocalPath);
 
             if (!fI.Exists)
-                await httpHelper.DownloadFileAsync(regionBackgroundProp.data.adv.background, regionBackgroundProp.imgLocalPath, 4, tokenSource.Token);
+            {
+                await httpHelper.DownloadMultisession(regionBackgroundProp.data.adv.background, regionBackgroundProp.imgLocalPath, false, 4, tokenSource.Token);
+                await httpHelper.MergeMultisession(regionBackgroundProp.imgLocalPath, 4, tokenSource.Token);
+            }
         }
 
         private async Task ApplyBackground(bool rescale = true)
@@ -361,8 +476,8 @@ namespace CollapseLauncher
                 OpacityAnimation.Duration = new Duration(TimeSpan.FromSeconds(0.25));
 
                 DoubleAnimation OpacityAnimationBack = new DoubleAnimation();
-                OpacityAnimationBack.From = hideImage ? 0.50 : 0.30;
-                OpacityAnimationBack.To = hideImage ? 0.30 : 0.50;
+                OpacityAnimationBack.From = hideImage ? 1 : 0.30;
+                OpacityAnimationBack.To = hideImage ? 0.30 : 1;
                 OpacityAnimationBack.Duration = new Duration(TimeSpan.FromSeconds(0.25));
 
                 Storyboard.SetTarget(OpacityAnimation, BackgroundFront);
@@ -381,29 +496,6 @@ namespace CollapseLauncher
                 BGLastState = hideImage;
 
                 await Task.Delay(250);
-            }
-        }
-
-        public class SystemAccentColorSetting : INotifyPropertyChanged
-        {
-            private SolidColorBrush systemAccentColor = new SolidColorBrush(Colors.Red);
-            public SolidColorBrush SystemAccentColor
-            {
-                get
-                {
-                    return systemAccentColor;
-                }
-                set
-                {
-                    systemAccentColor = value; OnPropertyChanged();
-                }
-            }
-
-            public event PropertyChangedEventHandler PropertyChanged;
-
-            protected void OnPropertyChanged([CallerMemberName] string propertyName = null)
-            {
-                this.PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
             }
         }
     }

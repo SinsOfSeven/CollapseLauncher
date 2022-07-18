@@ -7,9 +7,11 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Net.Http;
+using Hi3Helper.Http;
 using static Hi3Helper.Locale;
 using static Hi3Helper.Logger;
-using static Hi3Helper.Shared.Region.GameSettingsManagement;
+using static Hi3Helper.Shared.Region.GameConfig;
 using static Hi3Helper.Shared.Region.InstallationManagement;
 using static Hi3Helper.Shared.Region.LauncherConfig;
 
@@ -17,10 +19,9 @@ namespace CollapseLauncher
 {
     public sealed partial class MainPage : Page
     {
-        HttpClientHelper httpHelper;
+        Http httpHelper = new Http(default, 4, 250);
         CancellationTokenSource tokenSource;
         bool loadRegionComplete;
-        Task loader = new Task(() => { });
         int LoadTimeoutSec = 10;
         int LoadTimeoutJump = 2;
         public async Task LoadRegion(int regionIndex = 0)
@@ -34,7 +35,8 @@ namespace CollapseLauncher
             LoadGameRegionFile();
             LogWriteLine($"Initializing Region {CurrentRegion.ZoneName}...");
             DispatcherQueue.TryEnqueue(() => LoadingFooter.Text = "");
-            await HideLoadingPopup(false, "Loading Region", CurrentRegion.ZoneName);
+            await HideLoadingPopup(false, Lang._MainPage.RegionLoadingTitle, CurrentRegion.ZoneName);
+            ResetRegionProp();
             while (!await TryGetRegionResource())
             {
                 int lastTimeout = LoadTimeoutSec;
@@ -48,8 +50,12 @@ namespace CollapseLauncher
             InitRegKey();
             PushRegionNotification(CurrentRegion.ProfileName);
             await HideLoadingPopup(true, Lang._MainPage.RegionLoadingTitle, CurrentRegion.ZoneName);
+            if (regionResourceProp.data == null)
+            {
+                MainFrameChanger.ChangeWindowFrame(typeof(DisconnectedPage));
+                return;
+            }
             InitializeNavigationItems();
-            // HideBackgroundImage(false);
         }
 
         private async void PushRegionNotification(string RegionProfileName)
@@ -81,11 +87,12 @@ namespace CollapseLauncher
         {
             try
             {
+                regionNewsProp = new HomeMenuPanel();
                 tokenSource = new CancellationTokenSource();
                 RetryWatcher();
 
-                await FetchLauncherResourceAsRegion(tokenSource.Token);
                 await ChangeBackgroundImageAsRegion(tokenSource.Token);
+                await FetchLauncherResourceAsRegion(tokenSource.Token);
 
                 tokenSource.Cancel();
 
@@ -94,6 +101,10 @@ namespace CollapseLauncher
             catch (OperationCanceledException)
             {
                 return false;
+            }
+            catch (Exception ex)
+            {
+                ErrorSender.SendException(ex);
             }
             return true;
         }
@@ -136,8 +147,7 @@ namespace CollapseLauncher
                 PrepareInstallation();
 
             gameIni.Profile = new IniFile();
-            gameIni.ProfileStream = new FileStream(gameIni.ProfilePath, FileMode.Open, FileAccess.ReadWrite);
-            gameIni.Profile.Load(gameIni.ProfileStream);
+            gameIni.Profile.Load(gameIni.ProfilePath);
         }
 
         public async void ChangeRegion(object sender, RoutedEventArgs e)

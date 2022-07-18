@@ -2,6 +2,7 @@
 using Hi3Helper.Screen;
 using Microsoft.Win32;
 using Newtonsoft.Json;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -15,7 +16,7 @@ using static Hi3Helper.Shared.Region.LauncherConfig;
 
 namespace Hi3Helper.Shared.Region
 {
-    public static class GameSettingsManagement
+    public static class GameConfig
     {
         public static RegistryKey RegKey;
         public static bool IsRegKeyExist = true;
@@ -58,6 +59,8 @@ namespace Hi3Helper.Shared.Region
             { "ElfVolume", new IniValue(3) },
             { "CGVolume", new IniValue(3) },
             { "CVLanguage", new IniValue(1) },
+
+            { "CustomArgs", new IniValue("") },
         };
 
         public static async Task CheckExistingGameSettings()
@@ -71,8 +74,9 @@ namespace Hi3Helper.Shared.Region
         public static void PrepareGameSettings()
         {
             gameIni.Settings = new IniFile();
-            gameIni.SettingsStream = new FileStream(gameIni.SettingsPath, FileMode.OpenOrCreate, FileAccess.ReadWrite);
-            gameIni.Settings.Load(gameIni.SettingsStream);
+            if (!File.Exists(gameIni.SettingsPath))
+                gameIni.Settings.Save(gameIni.SettingsPath);
+            gameIni.Settings.Load(gameIni.SettingsPath);
         }
 
         private static async Task UpdateGameExistingSettings() =>
@@ -133,18 +137,46 @@ namespace Hi3Helper.Shared.Region
             }
         });
 
-        public static async Task SaveGameSettings() =>
+        public static async void SaveGameSettings() =>
         await Task.Run(() =>
         {
-            gameIni.Settings.Save(gameIni.SettingsStream = new FileStream(gameIni.SettingsPath, FileMode.OpenOrCreate, FileAccess.ReadWrite));
-            gameIni.Settings.Load(gameIni.SettingsStream = new FileStream(gameIni.SettingsPath, FileMode.Open, FileAccess.Read));
+            gameIni.Settings.Save(gameIni.SettingsPath);
+            gameIni.Settings.Load(gameIni.SettingsPath);
 
             SaveWindowValue();
             SavePersonalGraphicsSettingsValue();
             SavePersonalAudioSettingsValue();
         });
 
-        private static string GetRegistryValue(in string key) => Encoding.UTF8.GetString((byte[])RegKey.GetValue(key, null, RegistryValueOptions.DoNotExpandEnvironmentNames)).Replace("\0", "");
+        public static IniValue GetGameConfigValue(string key)
+        {
+            try
+            {
+                if (!(CurrentRegion.IsGenshin ?? false))
+                    return gameIni.Settings[SectionName][key];
+            }
+            catch (NullReferenceException) { }
+
+            return null;
+        }
+
+        public static void SetAndSaveGameConfigValue(string key, IniValue value)
+        {
+            SetGameConfigValue(key, value);
+            gameIni.Settings.Save(gameIni.SettingsPath);
+            gameIni.Settings.Load(gameIni.SettingsPath);
+        }
+
+        public static void SetGameConfigValue(string key, IniValue value) => gameIni.Settings[SectionName][key] = value;
+
+        private static string GetRegistryValue(in string key)
+        {
+            if (RegKey == null) return null;
+#nullable enable
+            object? data = RegKey.GetValue(key, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+#nullable disable
+            return Encoding.UTF8.GetString((byte[])data).Replace("\0", "");
+        }
 
         public static void SaveRegistryValue(in string reglocation, in string key, in object value, in RegistryValueKind kind) => RegKey.SetValue(key, value, kind);
 
@@ -171,8 +203,11 @@ namespace Hi3Helper.Shared.Region
             IniValue value = GameSettingsTemplate[key];
             try
             {
-                ScreenSettingData screenData = JsonConvert.DeserializeObject<ScreenSettingData>
-                                               (GetRegistryValue(ScreenSettingDataReg));
+                string RegData = GetRegistryValue(ScreenSettingDataReg);
+
+                if (RegData == null) return;
+
+                ScreenSettingData screenData = JsonConvert.DeserializeObject<ScreenSettingData>(RegData);
                 switch (key)
                 {
                     case "Fullscreen":
@@ -306,8 +341,11 @@ namespace Hi3Helper.Shared.Region
             IniValue value = GameSettingsTemplate[key];
             try
             {
-                PersonalGraphicsSettingV2 data = JsonConvert.DeserializeObject<PersonalGraphicsSettingV2>
-                                               (GetRegistryValue(PersonalGraphicsSettingV2Reg));
+                string RegData = GetRegistryValue(PersonalGraphicsSettingV2Reg);
+
+                if (RegData == null) return;
+
+                PersonalGraphicsSettingV2 data = JsonConvert.DeserializeObject<PersonalGraphicsSettingV2>(RegData);
                 #region Unused
                 /*
                 switch (key)
@@ -465,8 +503,11 @@ namespace Hi3Helper.Shared.Region
             IniValue value = GameSettingsTemplate[key];
             try
             {
-                PersonalAudioSetting data = JsonConvert.DeserializeObject<PersonalAudioSetting>
-                                               (GetRegistryValue(PersonalAudioSettingReg));
+                string RegData = GetRegistryValue(PersonalAudioSettingReg);
+
+                if (RegData == null) return;
+
+                PersonalAudioSetting data = JsonConvert.DeserializeObject<PersonalAudioSetting>(RegData);
 
                 switch (key)
                 {
@@ -549,20 +590,20 @@ namespace Hi3Helper.Shared.Region
 
                 // parameter.AppendFormat("-screen-fullscreen {0} ", gameIni.Settings[SectionName]["Fullscreen"].ToBool() ? 1 : 0);
 
-                if (gameIni.Settings[SectionName]["FullscreenExclusive"].ToBool())
+                if (GetGameConfigValue("FullscreenExclusive").ToBool())
                 {
                     parameter.Append("-window-mode exclusive ");
                     RequireWindowExclusivePayload = true;
                 }
 
-                Size screenSize = gameIni.Settings[SectionName]["ScreenResolution"].ToSize();
+                Size screenSize = GetGameConfigValue("ScreenResolution").ToSize();
 
-                int apiID = gameIni.Settings[SectionName]["GameGraphicsAPI"].ToInt();
+                int apiID = GetGameConfigValue("GameGraphicsAPI").ToInt();
 
                 if (apiID == 4)
                 {
                     LogWriteLine($"You are going to use DX12 mode in your game.\r\n\tUsing CustomScreenResolution or FullscreenExclusive value may break the game!", LogType.Warning);
-                    if (gameIni.Settings[SectionName]["CustomScreenResolution"].ToBool() && gameIni.Settings[SectionName]["Fullscreen"].ToBool())
+                    if (GetGameConfigValue("CustomScreenResolution").ToBool() && GetGameConfigValue("Fullscreen").ToBool())
                         parameter.AppendFormat("-screen-width {0} -screen-height {1} ", ScreenProp.GetScreenSize().Width, ScreenProp.GetScreenSize().Height);
                     else
                         parameter.AppendFormat("-screen-width {0} -screen-height {1} ", screenSize.Width, screenSize.Height);
@@ -594,6 +635,11 @@ namespace Hi3Helper.Shared.Region
 
             if (!GetAppConfigValue("EnableConsole").ToBool())
                 parameter.Append("-nolog ");
+
+            string customArgs = GetGameConfigValue("CustomArgs").ToString();
+
+            if (!string.IsNullOrEmpty(customArgs))
+                parameter.Append(customArgs);
 
             return parameter.ToString();
         }

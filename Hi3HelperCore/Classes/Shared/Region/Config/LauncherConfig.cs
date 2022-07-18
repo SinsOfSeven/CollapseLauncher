@@ -2,6 +2,7 @@
 using Hi3Helper.Preset;
 using Hi3Helper.Screen;
 using Hi3Helper.Shared.ClassStruct;
+using SevenZipExtractor;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -24,7 +25,7 @@ namespace Hi3Helper.Shared.Region
 
         const string SectionName = "app";
         public static string startupBackgroundPath;
-        public static RegionBackgroundProp regionBackgroundProp = new RegionBackgroundProp();
+        public static RegionResourceProp regionBackgroundProp = new RegionResourceProp();
         public static RegionResourceProp regionResourceProp = new RegionResourceProp();
         public static HomeMenuPanel regionNewsProp = new HomeMenuPanel();
         public static PresetConfigClasses CurrentRegion = new PresetConfigClasses();
@@ -62,7 +63,7 @@ namespace Hi3Helper.Shared.Region
         {
             { "CurrentRegion", new IniValue(0) },
             { "CurrentBackground", new IniValue("/Assets/BG/default.png") },
-            { "DownloadThread", new IniValue(8) },
+            { "DownloadThread", new IniValue(4) },
             { "ExtractionThread", new IniValue(0) },
             { "GameFolder", new IniValue() },
 #if DEBUG
@@ -71,9 +72,10 @@ namespace Hi3Helper.Shared.Region
             { "EnableConsole", new IniValue(false) },
 #endif
             { "DontAskUpdate", new IniValue(false) },
-            { "ThemeMode", new IniValue(AppThemeMode.Light) },
-            { "AppLanguage", new IniValue("en") },
+            { "ThemeMode", new IniValue(AppThemeMode.Default) },
+            { "AppLanguage", new IniValue("en-us") },
             { "UseCustomBG", new IniValue(false) },
+            { "ShowEventsPanel", new IniValue(true) },
             { "CustomBGPath", new IniValue() }
         };
 
@@ -132,6 +134,7 @@ namespace Hi3Helper.Shared.Region
             catch (ArgumentNullException)
             {
                 IsFirstInstall = true;
+
             }
         }
 
@@ -158,8 +161,8 @@ namespace Hi3Helper.Shared.Region
         }
         public static void SetAppConfigValue(string key, IniValue value) => appIni.Profile[SectionName][key] = value;
 
-        public static void LoadAppConfig() => appIni.Profile.Load(appIni.ProfileStream = new FileStream(appIni.ProfilePath, FileMode.Open, FileAccess.Read));
-        public static void SaveAppConfig() => appIni.Profile.Save(appIni.ProfileStream = new FileStream(appIni.ProfilePath, FileMode.OpenOrCreate, FileAccess.Write));
+        public static void LoadAppConfig() => appIni.Profile.Load(appIni.ProfilePath);
+        public static void SaveAppConfig() => appIni.Profile.Save(appIni.ProfilePath);
 
         public static void CheckAndSetDefaultConfigValue()
         {
@@ -168,6 +171,8 @@ namespace Hi3Helper.Shared.Region
                 if (GetAppConfigValue(Entry.Key).Value == null)
                     SetAppConfigValue(Entry.Key, Entry.Value);
             }
+            if (GetAppConfigValue("DownloadThread").ToInt() > 8)
+                SetAppConfigValue("DownloadThread", 8);
             SaveAppConfig();
         }
     }

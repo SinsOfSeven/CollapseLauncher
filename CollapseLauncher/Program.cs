@@ -4,6 +4,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
 using System;
+using System.Globalization;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
@@ -34,8 +35,12 @@ namespace CollapseLauncher
             {
                 InitAppPreset();
                 InitConsoleSetting(true);
-                Console.WriteLine($"App Version: {AppCurrentVersion} {(IsPreview ? "Preview" : "Stable")} Started!\r\nOS Version: {GetVersionString()}\r\nCurrent Username: {Environment.UserName}");
-                Console.WriteLine($"Initializing...", LogType.Empty);
+                Console.WriteLine(string.Format("App Version: {0} {3} Started\r\nOS Version: {1}\r\nCurrent Username: {2}",
+                    AppCurrentVersion,
+                    GetVersionString(),
+                    Environment.UserName,
+                    IsPreview ? "Preview" : "Stable"));
+                Console.WriteLine("Initializing...", LogType.Empty);
 
                 InitializeAppSettings();
                 ParseArguments(args);
@@ -49,7 +54,7 @@ namespace CollapseLauncher
                         RunElevateUpdate();
                         return;
                     case AppMode.Reindex:
-                        new Reindexer(m_arguments.Reindexer.AppPath, m_arguments.Reindexer.Version).RunReindex();
+                        new Reindexer(m_arguments.Reindexer.AppPath, m_arguments.Reindexer.Version, 4).RunReindex();
                         return;
                     case AppMode.InvokerTakeOwnership:
                         new TakeOwnership().StartTakingOwnership(m_arguments.TakeOwnership.AppPath);
@@ -126,7 +131,13 @@ namespace CollapseLauncher
         {
             InitLog(true, AppGameLogsFolder);
             TryParseLocalizations();
-            LoadLocalization(GetAppConfigValue("AppLanguage").ToString());
+            if (IsFirstInstall)
+            {
+                LoadLocalization(CultureInfo.CurrentUICulture.Name);
+                SetAppConfigValue("AppLanguage", Lang.LanguageID);
+            }
+            else
+                LoadLocalization(GetAppConfigValue("AppLanguage").ToString());
             SystemAppTheme = new UISettings().GetColorValue(UIColorType.Background);
             CurrentAppTheme = Enum.Parse<AppThemeMode>(GetAppConfigValue("ThemeMode").ToString());
         }

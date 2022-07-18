@@ -11,7 +11,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Storage;
-using Windows.Storage.Pickers;
 using static CollapseLauncher.Dialogs.SimpleDialogs;
 using static CollapseLauncher.InnerLauncherConfig;
 using static Hi3Helper.Data.ConverterTool;
@@ -94,7 +93,7 @@ namespace CollapseLauncher.Dialogs
                     { "sub_channel", new IniValue(1) },
                     { "sdk_version", new IniValue() },
             });
-            gameIni.Config.Save(gameIni.ConfigStream = new FileStream(Path.Combine(targetPath, "config.ini"), FileMode.Create, FileAccess.Write));
+            gameIni.Config.Save(Path.Combine(targetPath, "config.ini"));
 
             File.Delete(Path.Combine(targetPath, "_conversion_unfinished"));
         }
@@ -135,7 +134,7 @@ namespace CollapseLauncher.Dialogs
                 Step4ProgressRing.Value = 0;
             });
 
-            await Task.Run(() => StartConversionTask());
+            await StartConversionTask();
 
             DispatcherQueue.TryEnqueue(() =>
             {
@@ -148,12 +147,12 @@ namespace CollapseLauncher.Dialogs
             });
         }
 
-        private void StartConversionTask()
+        private async Task StartConversionTask()
         {
             SteamConversion conversionTool = new SteamConversion(targetPath, endpointURL, BrokenFileIndexesProperty, tokenSource);
 
             conversionTool.ProgressChanged += ConversionProgressChanged;
-            conversionTool.StartConverting();
+            await conversionTool.StartConverting();
             conversionTool.ProgressChanged -= ConversionProgressChanged;
         }
 
@@ -308,7 +307,6 @@ namespace CollapseLauncher.Dialogs
 
         private async Task<bool> DoCheckPermission()
         {
-            FolderPicker folderPicker = new FolderPicker();
             StorageFolder folder;
 
             DispatcherQueue.TryEnqueue(() => Step1.Opacity = 1f);
@@ -347,9 +345,7 @@ namespace CollapseLauncher.Dialogs
                         targetPath = Path.Combine(choosenFolder, Path.GetFileName(GamePathOnSteam));
                         break;
                     case ContentDialogResult.Secondary:
-                        folderPicker.FileTypeFilter.Add("*");
-                        WinRT.Interop.InitializeWithWindow.Initialize(folderPicker, m_windowHandle);
-                        folder = await folderPicker.PickSingleFolderAsync();
+                        folder = await (m_window as MainWindow).GetFolderPicker();
 
                         if (folder == null)
                             OperationCancelled();

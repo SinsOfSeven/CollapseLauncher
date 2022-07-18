@@ -1,5 +1,6 @@
 ﻿using Hi3Helper;
 using Hi3Helper.Data;
+using Hi3Helper.Http;
 using Hi3Helper.Shared.ClassStruct;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -25,7 +26,7 @@ namespace CollapseLauncher.Pages
         CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
         ObservableCollection<DataPropertiesUI> brokenCachesListUI = new ObservableCollection<DataPropertiesUI>();
 
-        HttpClientHelper http = new HttpClientHelper();
+        Http http = new Http();
         Stream cachesStream;
         FileInfo cachesFileInfo;
         string[] cacheRegionalCheckName = new string[1] { "sprite" };
@@ -46,52 +47,49 @@ namespace CollapseLauncher.Pages
 
         private async Task DoCachesCheck()
         {
-            await Task.Run(() =>
+            try
             {
-                try
+                cachesRead = 0;
+                cachesCount = 0;
+                cachesTotalCount = 0;
+                cachesTotalSize = 0;
+                cancellationTokenSource = new CancellationTokenSource();
+                DispatcherQueue.TryEnqueue(() =>
                 {
-                    cachesRead = 0;
-                    cachesCount = 0;
-                    cachesTotalCount = 0;
-                    cachesTotalSize = 0;
-                    cancellationTokenSource = new CancellationTokenSource();
-                    DispatcherQueue.TryEnqueue(() =>
-                    {
-                        CachesDataTableGrid.Visibility = Visibility.Collapsed;
-                        brokenCachesListUI.Clear();
-                        CancelBtn.Visibility = Visibility.Visible;
-                        CheckUpdateBtn.IsEnabled = false;
-                        CancelBtn.IsEnabled = true;
-                    });
-                    cachesLanguage = CurrentRegion.GetGameLanguage();
-                    FetchCachesAPI();
-                    DispatcherQueue.TryEnqueue(() => CachesDataTableGrid.Visibility = Visibility.Visible);
-                    CheckCachesIntegrity();
-                }
-                catch (OperationCanceledException)
+                    CachesDataTableGrid.Visibility = Visibility.Collapsed;
+                    brokenCachesListUI.Clear();
+                    CancelBtn.Visibility = Visibility.Visible;
+                    CheckUpdateBtn.IsEnabled = false;
+                    CancelBtn.IsEnabled = true;
+                });
+                cachesLanguage = CurrentRegion.GetGameLanguage();
+                await FetchCachesAPI();
+                DispatcherQueue.TryEnqueue(() => CachesDataTableGrid.Visibility = Visibility.Visible);
+                await CheckCachesIntegrity();
+            }
+            catch (OperationCanceledException)
+            {
+                LogWriteLine("Caches Update check cancelled!", LogType.Warning);
+                DispatcherQueue.TryEnqueue(() =>
                 {
-                    LogWriteLine("Caches Update check cancelled!", LogType.Warning);
-                    DispatcherQueue.TryEnqueue(() =>
-                    {
-                        CachesStatus.Text = Lang._CachesPage.CachesStatusCancelled;
-                        CachesTotalStatus.Text = Lang._CachesPage.CachesTotalStatusNone;
-                        CachesTotalProgressBar.Value = 0;
-                        CheckUpdateBtn.Visibility = Visibility.Visible;
-                        CheckUpdateBtn.IsEnabled = true;
-                        UpdateCachesBtn.Visibility = Visibility.Collapsed;
-                        CancelBtn.IsEnabled = false;
-                    });
-                    http.DownloadProgress -= DataFetchingProgress;
-                }
-                catch (Exception ex)
-                {
-                    ErrorSender.SendException(ex);
-                    LogWriteLine(ex.ToString(), LogType.Error, true);
-                }
-            });
+                    CachesStatus.Text = Lang._CachesPage.CachesStatusCancelled;
+                    CachesTotalStatus.Text = Lang._CachesPage.CachesTotalStatusNone;
+                    CachesTotalProgressBar.Value = 0;
+                    CheckUpdateBtn.Visibility = Visibility.Visible;
+                    CheckUpdateBtn.IsEnabled = true;
+                    UpdateCachesBtn.Visibility = Visibility.Collapsed;
+                    CancelBtn.IsEnabled = false;
+                });
+                http.DownloadProgress -= DataFetchingProgress;
+            }
+            catch (Exception ex)
+            {
+                ErrorSender.SendException(ex);
+                LogWriteLine(ex.ToString(), LogType.Error, true);
+            }
         }
 
-        private void FetchCachesAPI()
+        private async Task FetchCachesAPI()
         {
             DataProperties cacheCatalog;
             cachesList = new List<DataProperties>();
@@ -105,7 +103,7 @@ namespace CollapseLauncher.Pages
                     DispatcherQueue.TryEnqueue(() => CachesStatus.Text = string.Format(Lang._CachesPage.CachesStatusFetchingType, type));
 
                     http.DownloadProgress += DataFetchingProgress;
-                    http.DownloadFile(cachesAPIURL, cachesStream, cancellationTokenSource.Token, null, null, false);
+                    await http.DownloadStream(cachesAPIURL, cachesStream, cancellationTokenSource.Token);
                     http.DownloadProgress -= DataFetchingProgress;
 
                     cacheCatalog = JsonConvert.DeserializeObject<DataProperties>(
@@ -151,7 +149,7 @@ namespace CollapseLauncher.Pages
             return 2;
         }
 
-        private void CheckCachesIntegrity()
+        private async Task CheckCachesIntegrity()
         {
             cachesBasePath = Path.Combine(GameAppDataFolder, Path.GetFileName(CurrentRegion.ConfigRegistryLocation));
             string cachesPathType;
@@ -194,27 +192,28 @@ namespace CollapseLauncher.Pages
 
                     if (cachesFileInfo.Exists)
                     {
-                        cachesStream = new FileStream(cachesPath, FileMode.Open, FileAccess.Read);
-                        hashTool.ComputeHash(cachesStream);
-                        hash = BytesToHex(hashTool.Hash);
-
-                        if (hash != content.CRC)
+                        using (cachesStream = new FileStream(cachesPath, FileMode.Open, FileAccess.Read))
                         {
-                            content.Status = CachesDataStatus.Obsolete;
-                            brokenCaches.Add(content);
-                            DispatcherQueue.TryEnqueue(() => brokenCachesListUI.Add(new DataPropertiesUI
+                            await hashTool.ComputeHashAsync(cachesStream);
+                            hash = BytesToHex(hashTool.Hash);
+
+                            if (hash != content.CRC)
                             {
-                                FileName = Path.GetFileName(content.N),
-                                FileSizeStr = SummarizeSizeSimple(content.CS),
-                                CacheStatus = CachesDataStatus.Obsolete,
-                                DataType = dataType.DataType,
-                                FileSource = Path.GetDirectoryName(content.N),
-                                FileLastModified = File.GetLastWriteTime(cachesPath).ToLocalTime().ToString("yyyy/MM/dd HH:mm"),
-                                FileNewModified = DateTimeOffset.FromUnixTimeSeconds(dataType.Timestamp).ToLocalTime().ToString("yyyy/MM/dd HH:mm")
-                            }));
-                            LogWriteLine($"Obsolete: {content.N}", LogType.Warning);
+                                content.Status = CachesDataStatus.Obsolete;
+                                brokenCaches.Add(content);
+                                DispatcherQueue.TryEnqueue(() => brokenCachesListUI.Add(new DataPropertiesUI
+                                {
+                                    FileName = Path.GetFileName(content.N),
+                                    FileSizeStr = SummarizeSizeSimple(content.CS),
+                                    CacheStatus = CachesDataStatus.Obsolete,
+                                    DataType = dataType.DataType,
+                                    FileSource = Path.GetDirectoryName(content.N),
+                                    FileLastModified = File.GetLastWriteTime(cachesPath).ToLocalTime().ToString("yyyy/MM/dd HH:mm"),
+                                    FileNewModified = DateTimeOffset.FromUnixTimeSeconds(dataType.Timestamp).ToLocalTime().ToString("yyyy/MM/dd HH:mm")
+                                }));
+                                LogWriteLine($"Obsolete: {content.N}", LogType.Warning);
+                            }
                         }
-                        cachesStream.Dispose();
                     }
                     else
                     {
@@ -295,11 +294,11 @@ namespace CollapseLauncher.Pages
             }
         }
 
-        private void DataFetchingProgress(object sender, HttpClientHelper._DownloadProgress e)
+        private void DataFetchingProgress(object sender, DownloadEvent e)
         {
             DispatcherQueue.TryEnqueue(() =>
             {
-                CachesTotalStatus.Text = string.Format(Lang._Misc.Speed, SummarizeSizeSimple(e.CurrentSpeed));
+                CachesTotalStatus.Text = string.Format(Lang._Misc.Speed, SummarizeSizeSimple(e.Speed));
             });
         }
     }

@@ -1,4 +1,5 @@
 ﻿using Hi3Helper.Data;
+using Hi3Helper.Http;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
@@ -8,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using static Hi3Helper.Shared.Region.LauncherConfig;
+using static Hi3Helper.Locale;
 
 namespace CollapseLauncher.Pages
 {
@@ -25,7 +27,7 @@ namespace CollapseLauncher.Pages
             {
                 CurrentVersionLabel.Text = $"{AppCurrentVersion}";
                 NewVersionLabel.Text = LauncherUpdateWatcher.UpdateProperty.ver;
-                UpdateChannelLabel.Text = IsPreview ? "Preview" : "Stable";
+                UpdateChannelLabel.Text = IsPreview ? Lang._Misc.BuildChannelPreview : Lang._Misc.BuildChannelStable;
                 AskUpdateCheckbox.IsChecked = GetAppConfigValue("DontAskUpdate").ToBoolNullable() ?? false;
                 BuildTimestampLabel.Text = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
                                             .AddSeconds(LauncherUpdateWatcher.UpdateProperty.time)
@@ -37,21 +39,21 @@ namespace CollapseLauncher.Pages
 
         public async Task GetReleaseNote()
         {
-            DispatcherQueue.TryEnqueue(() => ReleaseNotesBox.Text = "Loading Release Notes...");
+            DispatcherQueue.TryEnqueue(() => ReleaseNotesBox.Text = Lang._UpdatePage.LoadingRelease);
 
             MemoryStream ResponseStream = new MemoryStream();
             string ReleaseNoteURL = string.Format(UpdateRepoChannel + "changelog_{0}", IsPreview ? "preview" : "stable");
 
             try
             {
-                await new HttpClientHelper().DownloadFileAsync(ReleaseNoteURL, ResponseStream, new CancellationToken());
+                await new Http().DownloadStream(ReleaseNoteURL, ResponseStream, new CancellationToken());
                 string Content = Encoding.UTF8.GetString(ResponseStream.ToArray());
 
                 DispatcherQueue.TryEnqueue(() => ReleaseNotesBox.Text = Content);
             }
             catch (Exception ex)
             {
-                DispatcherQueue.TryEnqueue(() => ReleaseNotesBox.Text = $"Error while fetching Release Notes.\r\n{ex}");
+                DispatcherQueue.TryEnqueue(() => ReleaseNotesBox.Text = string.Format(Lang._UpdatePage.LoadingReleaseFailed, ex));
             }
         }
 

@@ -1,10 +1,11 @@
 using Hi3Helper;
-using Hi3Helper.Data;
+using Hi3Helper.Http;
 using Hi3Helper.Shared.ClassStruct;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.Web.WebView2.Core;
 using Newtonsoft.Json;
 using System;
 using System.Diagnostics;
@@ -31,6 +32,7 @@ namespace CollapseLauncher
                 LogWriteLine($"Welcome to Collapse Launcher v{AppCurrentVersion} - {MainEntryPoint.GetVersionString()}", LogType.Default, false);
                 LogWriteLine($"Application Data Location:\r\n\t{AppDataFolder}", LogType.Default);
                 InitializeComponent();
+                SetThemeParameters();
 
                 m_actualMainFrameSize = new Size(LauncherFrame.Width, LauncherFrame.Height);
 
@@ -38,12 +40,13 @@ namespace CollapseLauncher
                 MainFrameChangerInvoker.FrameEvent += MainFrameChangerInvoker_FrameEvent;
                 NotificationInvoker.EventInvoker += NotificationInvoker_EventInvoker;
                 BackgroundImgChangerInvoker.ImgEvent += CustomBackgroundChanger_Event;
+                SpawnWebView2Invoker.SpawnEvent += SpawnWebView2Invoker_SpawnEvent;
 
                 LauncherUpdateWatcher.StartCheckUpdate();
 
-                Task.Run(() => CheckRunningGameInstance());
+                CheckRunningGameInstance();
 
-                InitializeStartup().GetAwaiter();
+                InitializeStartup();
             }
             catch (Exception ex)
             {
@@ -51,6 +54,8 @@ namespace CollapseLauncher
                 ErrorSender.SendException(ex);
             }
         }
+
+        private void SpawnWebView2Invoker_SpawnEvent(object sender, SpawnWebView2Property e) => SpawnWebView2Panel(e.URL);
 
         private async void CustomBackgroundChanger_Event(object sender, BackgroundImgProperty e)
         {
@@ -81,7 +86,7 @@ namespace CollapseLauncher
             {
                 string execName = Path.GetFileNameWithoutExtension(CurrentRegion.GameExecutableName);
                 App.IsGameRunning = Process.GetProcessesByName(execName).Length != 0 && !App.IsAppKilled;
-                await Task.Delay(3000);
+                await Task.Delay(250);
             }
         }
 
@@ -92,7 +97,7 @@ namespace CollapseLauncher
                 e.OtherContent, e.IsAppNotif);
         }
 
-        private async Task GetAppNotificationPush()
+        private async void GetAppNotificationPush()
         {
             try
             {
@@ -124,8 +129,8 @@ namespace CollapseLauncher
                 RunTimeoutCancel(TokenSource);
                 using (MemoryStream buffer = new MemoryStream())
                 {
-                    await new HttpClientHelper().DownloadFileAsync(string.Format(AppNotifURLPrefix, (IsPreview ? "preview" : "stable")),
-                        buffer, TokenSource.Token, null, null, false);
+                    await new Http().DownloadStream(string.Format(AppNotifURLPrefix, (IsPreview ? "preview" : "stable")),
+                        buffer, TokenSource.Token);
                     NotificationData = JsonConvert.DeserializeObject<NotificationPush>(Encoding.UTF8.GetString(buffer.ToArray()));
                     IsLoadNotifComplete = true;
                 }
@@ -139,10 +144,10 @@ namespace CollapseLauncher
 
         private async void RunTimeoutCancel(CancellationTokenSource Token)
         {
-            await Task.Delay(5000);
+            await Task.Delay(10000);
             if (!IsLoadNotifComplete)
             {
-                LogWriteLine("Cancel to load notification push! > 5 seconds", LogType.Error, true);
+                LogWriteLine("Cancel to load notification push! > 10 seconds", LogType.Error, true);
                 Token.Cancel();
             }
         }
@@ -231,7 +236,7 @@ namespace CollapseLauncher
             {
                 Grid Container = new Grid
                 {
-                    Background = (Brush)Application.Current.Resources["InfoBarAnnouncementBrush"]
+                    // Background = (Brush)Application.Current.Resources["InfoBarAnnouncementBrush"]
                 };
 
                 StackPanel OtherContentContainer = new StackPanel
@@ -244,13 +249,19 @@ namespace CollapseLauncher
                 {
                     Title = Title,
                     Message = Content,
-                    Margin = new Thickness(-2),
-                    CornerRadius = new CornerRadius(0),
+                    Margin = new Thickness(4, 4, 4, 0),
+                    CornerRadius = new CornerRadius(8),
                     Severity = Severity,
                     IsClosable = IsClosable,
                     IsIconVisible = true,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    Background = (Brush)Application.Current.Resources["InfoBarAnnouncementBrush"],
+                    Shadow = SharedShadow,
+                    Translation = Shadow16,
                     IsOpen = true
                 };
+
+                Notification.Closed += ((a, b) => { a.Translation -= Shadow16; });
 
                 if (OtherContent != null)
                     OtherContentContainer.Children.Add(OtherContent);
@@ -275,6 +286,7 @@ namespace CollapseLauncher
                 NotificationBar.Children.Add(Container);
             });
         }
+
 
         private void NeverAskNotif_Checked(object sender, RoutedEventArgs e)
         {
@@ -323,23 +335,17 @@ namespace CollapseLauncher
             }
         }
 
-        private async Task InitializeStartup()
+        private async void InitializeStartup()
         {
-            await HideLoadingPopup(false, "Loading", "Launcher API");
+            // await HideLoadingPopup(false, "Loading", "Launcher API");
             LoadConfig();
-            await GetAppNotificationPush();
-            // InnerLauncherConfig.NotificationData = new NotificationPush();
+            GetAppNotificationPush();
             await LoadRegion(GetAppConfigValue("CurrentRegion").ToInt());
-            if (regionResourceProp.data != null)
-                MainFrameChanger.ChangeMainFrame(typeof(Pages.HomePage));
-            else
-                MainFrameChanger.ChangeWindowFrame(typeof(DisconnectedPage));
+            MainFrameChanger.ChangeMainFrame(typeof(Pages.HomePage));
         }
 
-        private async void InitializeNavigationItems()
+        private void InitializeNavigationItems()
         {
-            await Task.Run(() => { });
-
             NavigationViewControl.IsSettingsVisible = true;
             NavigationViewControl.MenuItems.Clear();
 
@@ -361,6 +367,7 @@ namespace CollapseLauncher
             }
 
             NavigationViewControl.SelectedItem = (NavigationViewItem)NavigationViewControl.MenuItems[0];
+            (NavigationViewControl.SettingsItem as NavigationViewItem).Content = Lang._SettingsPage.PageTitle;
         }
 
         public void LoadConfig()
@@ -453,33 +460,6 @@ namespace CollapseLauncher
             }
         }
 
-        private void NavigationViewControl_DisplayModeChanged(NavigationView sender, NavigationViewDisplayModeChangedEventArgs args)
-        {
-            const int topIndent = 16;
-            const int expandedIndent = 48;
-            int minimalIndent = 104;
-
-            if (NavigationViewControl.IsBackButtonVisible.Equals(NavigationViewBackButtonVisible.Collapsed))
-            {
-                minimalIndent = 48;
-            }
-
-            Thickness currMargin = AppTitleBar.Margin;
-
-            if (sender.PaneDisplayMode == NavigationViewPaneDisplayMode.Top)
-            {
-                AppTitleBar.Margin = new Thickness(topIndent, currMargin.Top, currMargin.Right, currMargin.Bottom);
-            }
-            else if (sender.DisplayMode == NavigationViewDisplayMode.Minimal)
-            {
-                AppTitleBar.Margin = new Thickness(minimalIndent, currMargin.Top, currMargin.Right, currMargin.Bottom);
-            }
-            else
-            {
-                AppTitleBar.Margin = new Thickness(expandedIndent, currMargin.Top, currMargin.Right, currMargin.Bottom);
-            }
-        }
-
         private void EnableRegionChangeButton(object sender, SelectionChangedEventArgs e) => ChangeRegionConfirmBtn.IsEnabled = true;
 
         private void ErrorSenderInvoker_ExceptionEvent(object sender, ErrorProperties e)
@@ -524,5 +504,52 @@ namespace CollapseLauncher
             }
             m_appCurrentFrameName = e.FrameTo.Name;
         }
+
+        private async void SpawnWebView2Panel(Uri URL)
+        {
+            try
+            {
+                Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER", Path.Combine(AppGameFolder, "_webView2"));
+                WebViewWindow.Visibility = Visibility.Visible;
+                WebView2Panel.Visibility = Visibility.Visible;
+                WebView2Panel.Translation += Shadow32;
+                await WebViewWindow.EnsureCoreWebView2Async();
+                WebViewWindow.Source = URL;
+            }
+            catch (Exception ex)
+            {
+                LogWriteLine($"Error while initialize WebView2\r\n{ex}", LogType.Error, true);
+                WebViewWindow.Close();
+            }
+        }
+
+        private void WebViewWindow_PageLoaded(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args) => WebViewLoadingStatus.IsIndeterminate = false;
+
+        private void WebViewWindow_PageLoading(WebView2 sender, CoreWebView2NavigationStartingEventArgs args) => WebViewLoadingStatus.IsIndeterminate = true;
+
+        private void WebViewBackBtn_Click(object sender, RoutedEventArgs e) => WebViewWindow.GoBack();
+        private void WebViewForwardBtn_Click(object sender, RoutedEventArgs e) => WebViewWindow.GoForward();
+        private void WebViewReloadBtn_Click(object sender, RoutedEventArgs e) => WebViewWindow.Reload();
+        private void WebViewOpenExternalBtn_Click(object sender, RoutedEventArgs e)
+        {
+            new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    UseShellExecute = true,
+                    FileName = WebViewWindow.Source.ToString()
+                }
+            }.Start();
+        }
+
+        private void WebViewCloseBtn_Click(object sender, RoutedEventArgs e)
+        {
+            WebViewWindow.Visibility = Visibility.Collapsed;
+            WebViewWindow.Reload();
+            WebView2Panel.Visibility = Visibility.Collapsed;
+            WebView2Panel.Translation -= Shadow32;
+        }
+        private void WebViewWindow_CoreWebView2Initialized(WebView2 sender, CoreWebView2InitializedEventArgs args) => sender.CoreWebView2.DocumentTitleChanged += CoreWebView2_DocumentTitleChanged;
+        private void CoreWebView2_DocumentTitleChanged(Microsoft.Web.WebView2.Core.CoreWebView2 sender, object args) => WebViewWindowTitle.Text = sender.DocumentTitle;
     }
 }

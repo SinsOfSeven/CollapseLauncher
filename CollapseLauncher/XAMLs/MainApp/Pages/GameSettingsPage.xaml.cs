@@ -6,7 +6,7 @@ using System.Drawing;
 using System.Threading.Tasks;
 using static Hi3Helper.Locale;
 using static Hi3Helper.Logger;
-using static Hi3Helper.Shared.Region.GameSettingsManagement;
+using static Hi3Helper.Shared.Region.GameConfig;
 using static Hi3Helper.Shared.Region.InstallationManagement;
 using static Hi3Helper.Shared.Region.LauncherConfig;
 
@@ -124,7 +124,7 @@ namespace CollapseLauncher.Pages
                 GlobalIlluminationSelector.SelectedIndex = gameIni.Settings[SectionName]["GlobalIllumination"].ToBool() ? 1 : 0;
                 AmbientOcclusionSelector.SelectedIndex = gameIni.Settings[SectionName]["AmbientOcclusion"].ToInt();
                 LevelOfDetailSelector.SelectedIndex = gameIni.Settings[SectionName]["LodLevel"].ToInt();
-                GameVolumetricLightCheckBox.IsChecked = gameIni.Settings[SectionName]["LodGrade"].ToBool();
+                GameVolumetricLightCheckBox.IsChecked = gameIni.Settings[SectionName]["VolumetricLight"].ToBool();
 
                 if (GameFXPostProcCheckBox.IsChecked ?? true)
                 {
@@ -167,7 +167,7 @@ namespace CollapseLauncher.Pages
 
                 await SetGraphicsSettingsIni();
                 await SetAudioSettingsIni();
-                await SaveGameSettings();
+                SaveGameSettings();
             }
             catch (Exception ex)
             {
@@ -397,6 +397,12 @@ namespace CollapseLauncher.Pages
                 LogWriteLine($"{ex}", Hi3Helper.LogType.Error, true);
                 ErrorSender.SendException(ex);
             }
+        }
+
+        public string CustomArgsValue
+        {
+            get => GetGameConfigValue("CustomArgs").ToString();
+            set => SetGameConfigValue("CustomArgs", value);
         }
     }
 }

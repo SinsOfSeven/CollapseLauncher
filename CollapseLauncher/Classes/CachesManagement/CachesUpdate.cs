@@ -8,8 +8,10 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Hi3Helper.Http;
 using static Hi3Helper.Data.ConverterTool;
 using static Hi3Helper.Logger;
+using static Hi3Helper.Locale;
 using static Hi3Helper.Shared.Region.LauncherConfig;
 
 namespace CollapseLauncher.Pages
@@ -19,61 +21,58 @@ namespace CollapseLauncher.Pages
         int DownloadThread = GetAppConfigValue("DownloadThread").ToInt();
         private async Task DoCachesUpdate()
         {
-            await Task.Run(() =>
+            try
             {
-                try
-                {
-                    SpeedStopwatch = Stopwatch.StartNew();
-                    cachesRead = 0;
-                    cachesCount = 0;
-                    cancellationTokenSource = new CancellationTokenSource();
+                SpeedStopwatch = Stopwatch.StartNew();
+                cachesRead = 0;
+                cachesCount = 0;
+                cancellationTokenSource = new CancellationTokenSource();
 
-                    DispatcherQueue.TryEnqueue(() =>
-                    {
-                        UpdateCachesBtn.IsEnabled = false;
-                        CancelBtn.IsEnabled = true;
-                    });
-                    DownloadCachesUpdate();
-                    CacheReindexing();
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    UpdateCachesBtn.IsEnabled = false;
+                    CancelBtn.IsEnabled = true;
+                });
+                await DownloadCachesUpdate();
+                CacheReindexing();
 
-                    DispatcherQueue.TryEnqueue(() =>
-                    {
-                        CachesStatus.Text = "Caches Update Completed!";
-                        CachesTotalStatus.Text = "None";
-                        CachesTotalProgressBar.Value = 0;
-                        UpdateCachesBtn.IsEnabled = true;
-                        CheckUpdateBtn.IsEnabled = true;
-                        UpdateCachesBtn.Visibility = Visibility.Collapsed;
-                        CheckUpdateBtn.Visibility = Visibility.Visible;
-                        CancelBtn.IsEnabled = false;
-                    });
-                }
-                catch (OperationCanceledException)
+                DispatcherQueue.TryEnqueue(() =>
                 {
-                    LogWriteLine("Caches Update check cancelled!", LogType.Warning);
-                    DispatcherQueue.TryEnqueue(() =>
-                    {
-                        CachesStatus.Text = $"Operation has been cancelled!";
-                        CachesTotalStatus.Text = "None";
-                        CachesTotalProgressBar.Value = 0;
-                        CheckUpdateBtn.Visibility = Visibility.Visible;
-                        CheckUpdateBtn.IsEnabled = true;
-                        UpdateCachesBtn.Visibility = Visibility.Collapsed;
-                        CancelBtn.IsEnabled = false;
-                    });
-                    http.DownloadProgress -= CachesDownloadProgress;
-                }
-                catch (Exception ex)
+                    CachesStatus.Text = Lang._Misc.Completed;
+                    CachesTotalStatus.Text = Lang._CachesPage.CachesTotalStatusNone;
+                    CachesTotalProgressBar.Value = 0;
+                    UpdateCachesBtn.IsEnabled = true;
+                    CheckUpdateBtn.IsEnabled = true;
+                    UpdateCachesBtn.Visibility = Visibility.Collapsed;
+                    CheckUpdateBtn.Visibility = Visibility.Visible;
+                    CancelBtn.IsEnabled = false;
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                LogWriteLine("Caches Update check cancelled!", LogType.Warning);
+                DispatcherQueue.TryEnqueue(() =>
                 {
-                    ErrorSender.SendException(ex);
-                }
-            });
+                    CachesStatus.Text = Lang._CachesPage.CachesStatusCancelled;
+                    CachesTotalStatus.Text = Lang._CachesPage.CachesTotalStatusNone;
+                    CachesTotalProgressBar.Value = 0;
+                    CheckUpdateBtn.Visibility = Visibility.Visible;
+                    CheckUpdateBtn.IsEnabled = true;
+                    UpdateCachesBtn.Visibility = Visibility.Collapsed;
+                    CancelBtn.IsEnabled = false;
+                });
+                http.DownloadProgress -= CachesDownloadProgress;
+            }
+            catch (Exception ex)
+            {
+                ErrorSender.SendException(ex);
+            }
         }
 
-        private void DownloadCachesUpdate()
+        private async Task DownloadCachesUpdate()
         {
             string cachesPathType;
-            int DownloadThread = GetAppConfigValue("DownloadThread").ToInt();
+            byte DownloadThread = (byte)GetAppConfigValue("DownloadThread").ToInt();
             foreach (DataProperties dataType in brokenCachesList)
             {
                 switch (dataType.DataType)
@@ -101,16 +100,23 @@ namespace CollapseLauncher.Pages
 
                     DispatcherQueue.TryEnqueue(() =>
                     {
-                        CachesStatus.Text = $"Downloading {dataType.DataType}: {content.N}";
+                        CachesStatus.Text = string.Format(Lang._Misc.Downloading + " {0}: {1}", dataType.DataType, content.N);
                     });
 
-                    http.DownloadProgress += CachesDownloadProgress;
                     if (content.CS >= 4 << 20)
-                        http.DownloadFile(cachesURL, cachesPath, DownloadThread, cancellationTokenSource.Token);
+                    {
+                        http.DownloadProgress += CachesDownloadProgress;
+                        await http.DownloadMultisession(cachesURL, cachesPath, true, DownloadThread, cancellationTokenSource.Token);
+                        http.DownloadProgress -= CachesDownloadProgress;
+                        await http.MergeMultisession(cachesPath, DownloadThread, cancellationTokenSource.Token);
+                    }
                     else
+                    {
+                        http.DownloadProgress += CachesDownloadProgress;
                         using (cachesStream = cachesFileInfo.Create())
-                            http.DownloadFile(cachesURL, cachesStream, cancellationTokenSource.Token, null, null, false);
-                    http.DownloadProgress -= CachesDownloadProgress;
+                            await http.DownloadStream(cachesURL, cachesStream, cancellationTokenSource.Token);
+                        http.DownloadProgress -= CachesDownloadProgress;
+                    }
 
                     LogWriteLine($"Downloaded: {content.N}", LogType.Default, true);
 
@@ -155,20 +161,22 @@ namespace CollapseLauncher.Pages
         Stopwatch refreshTime = Stopwatch.StartNew();
         Stopwatch SpeedStopwatch = Stopwatch.StartNew();
         string timeLeftString;
-        private void CachesDownloadProgress(object sender, HttpClientHelper._DownloadProgress e)
+        private void CachesDownloadProgress(object sender, DownloadEvent e)
         {
-            if (e.DownloadState == HttpClientHelper.State.Downloading)
-                cachesRead += e.CurrentRead;
+            if (http.SessionState != MultisessionState.Merging)
+                cachesRead += e.Read;
 
             if (refreshTime.Elapsed.Milliseconds >= 500)
             {
                 refreshTime = Stopwatch.StartNew();
-                timeLeftString = string.Format("{0:%h}h{0:%m}m{0:%s}s left", TimeSpan.FromSeconds((cachesTotalSize - cachesRead) / Unzeroed((long)(cachesRead / SpeedStopwatch.Elapsed.TotalSeconds))));
+                timeLeftString = string.Format(Lang._Misc.TimeRemainHMSFormat, TimeSpan.FromSeconds((cachesTotalSize - cachesRead) / Unzeroed((long)(cachesRead / SpeedStopwatch.Elapsed.TotalSeconds))));
             }
 
             DispatcherQueue.TryEnqueue(() =>
             {
-                CachesTotalStatus.Text = $"Downloading: {cachesCount}/{cachesTotalCount} ({SummarizeSizeSimple(e.CurrentSpeed)}/s)\t\tEstimation: {timeLeftString}";
+                CachesTotalStatus.Text = string.Format(Lang._Misc.Downloading + ": {0}/{1} ", cachesCount, cachesTotalCount)
+                                       + string.Format($"({Lang._Misc.SpeedPerSec})", SummarizeSizeSimple(e.Speed))
+                                       + $" | {timeLeftString}";
                 CachesTotalProgressBar.Value = GetPercentageNumber(cachesRead, cachesTotalSize);
             });
         }

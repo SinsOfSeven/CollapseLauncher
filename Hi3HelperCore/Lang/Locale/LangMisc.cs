@@ -55,6 +55,7 @@
                 public string Downloading { get; set; } = LangFallback?._Misc.Downloading;
                 public string Merging { get; set; } = LangFallback?._Misc.Merging;
                 public string Idle { get; set; } = LangFallback?._Misc.Idle;
+                public string Change { get; set; } = LangFallback?._Misc.Change;
                 public string Cancelled { get; set; } = LangFallback?._Misc.Cancelled;
                 public string Extracting { get; set; } = LangFallback?._Misc.Extracting;
                 public string Converting { get; set; } = LangFallback?._Misc.Converting;
@@ -68,6 +69,10 @@
                 public string CheckingFile { get; set; } = LangFallback?._Misc.CheckingFile;
                 public string RepairingFile { get; set; } = LangFallback?._Misc.RepairingFile;
                 public string ApplyingPatch { get; set; } = LangFallback?._Misc.ApplyingPatch;
+                public string Disabled { get; set; } = LangFallback?._Misc.Disabled;
+                public string Enabled { get; set; } = LangFallback?._Misc.Enabled;
+                public string BuildChannelPreview { get; set; } = LangFallback?._Misc.BuildChannelPreview;
+                public string BuildChannelStable { get; set; } = LangFallback?._Misc.BuildChannelStable;
             }
         }
         #endregion

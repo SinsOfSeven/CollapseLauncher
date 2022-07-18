@@ -1,10 +1,12 @@
 ﻿using CollapseLauncher.Dialogs;
 using Hi3Helper.Data;
+using Hi3Helper.Http;
 using Hi3Helper.Shared.ClassStruct;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -13,12 +15,12 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Storage;
-using Windows.Storage.Pickers;
 using static CollapseLauncher.Dialogs.SimpleDialogs;
+using static CollapseLauncher.InnerLauncherConfig;
 using static Hi3Helper.Data.ConverterTool;
 using static Hi3Helper.Locale;
 using static Hi3Helper.Logger;
-using static Hi3Helper.Shared.Region.GameSettingsManagement;
+using static Hi3Helper.Shared.Region.GameConfig;
 using static Hi3Helper.Shared.Region.InstallationManagement;
 using static Hi3Helper.Shared.Region.LauncherConfig;
 
@@ -31,50 +33,71 @@ namespace CollapseLauncher.Pages
 
     public sealed partial class HomePage : Page
     {
-        HttpClientHelper HttpTool = new HttpClientHelper();
+        Http HttpTool = new Http();
         public HomeMenuPanel MenuPanels { get { return regionNewsProp; } }
         CancellationTokenSource PageToken = new CancellationTokenSource();
         CancellationTokenSource InstallerDownloadTokenSource = new CancellationTokenSource();
-
         public HomePage()
         {
             try
             {
-                this.InitializeComponent();
                 MigrationWatcher.IsMigrationRunning = false;
                 HomePageProp.Current = this;
 
                 CheckIfRightSideProgress();
                 LoadGameConfig();
+
+                this.InitializeComponent();
                 CheckCurrentGameState();
 
-                SocMedPanel.Translation += Shadow32;
+                SocMedPanel.Translation += Shadow48;
                 LauncherBtn.Translation += Shadow32;
                 GameStartupSetting.Translation += Shadow32;
 
-                if (MenuPanels.imageCarouselPanel.Count != 0)
+                if (MenuPanels.imageCarouselPanel != null
+                    && MenuPanels.articlePanel != null)
                 {
                     ImageCarousel.SelectedIndex = 0;
+                    ShowEventsPanelToggle.IsEnabled = true;
                     ImageCarousel.Visibility = Visibility.Visible;
                     ImageCarouselPipsPager.Visibility = Visibility.Visible;
+                    PostPanel.Visibility = Visibility.Visible;
                     ImageCarousel.Translation += Shadow48;
                     ImageCarouselPipsPager.Translation += Shadow16;
+                    PostPanel.Translation += Shadow16;
 
                     Task.Run(() => StartCarouselAutoScroll(PageToken.Token));
                 }
 
-                Task.Run(() =>
+                if (!GetAppConfigValue("ShowEventsPanel").ToBool())
                 {
-                    try
-                    { CheckRunningGameInstance(); }
-                    catch (Exception) { }
-                });
+                    ImageCarouselAndPostPanel.Visibility = Visibility.Collapsed;
+                }
+
+                TryLoadEventPanelImage();
+
+                CheckRunningGameInstance();
             }
             catch (Exception ex)
             {
                 LogWriteLine($"{ex}", Hi3Helper.LogType.Error, true);
                 ErrorSender.SendException(ex);
             }
+        }
+
+        private async void TryLoadEventPanelImage()
+        {
+            if (regionNewsProp.eventPanel == null) return;
+
+            await Task.Run(() =>
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    ImageEventImgGrid.Visibility = Visibility.Visible;
+                    ImageEventImg.Source = new BitmapImage(new Uri(regionNewsProp.eventPanel.icon));
+                    ImageEventImg.Tag = regionNewsProp.eventPanel.url;
+                });
+            });
         }
 
         public async void ResetLastTimeSpan() => await Task.Run(() => LastTimeSpan = Stopwatch.StartNew());
@@ -117,36 +140,34 @@ namespace CollapseLauncher.Pages
 
         private async Task HideImageCarousel(bool hide)
         {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!hide)
+                    ImageCarouselAndPostPanel.Visibility = Visibility.Visible;
+            });
+
             Storyboard storyboard = new Storyboard();
-            Storyboard storyboard2 = new Storyboard();
             DoubleAnimation OpacityAnimation = new DoubleAnimation();
             OpacityAnimation.From = hide ? 1 : 0;
             OpacityAnimation.To = hide ? 0 : 1;
             OpacityAnimation.Duration = new Duration(TimeSpan.FromSeconds(0.10));
 
-            DoubleAnimation OpacityAnimation2 = new DoubleAnimation();
-            OpacityAnimation2.From = hide ? 1 : 0;
-            OpacityAnimation2.To = hide ? 0 : 1;
-            OpacityAnimation2.Duration = new Duration(TimeSpan.FromSeconds(0.10));
-
-            Storyboard.SetTarget(OpacityAnimation, ImageCarousel);
+            Storyboard.SetTarget(OpacityAnimation, ImageCarouselAndPostPanel);
             Storyboard.SetTargetProperty(OpacityAnimation, "Opacity");
-            Storyboard.SetTarget(OpacityAnimation2, ImageCarouselPipsPager);
-            Storyboard.SetTargetProperty(OpacityAnimation2, "Opacity");
             storyboard.Children.Add(OpacityAnimation);
-            storyboard2.Children.Add(OpacityAnimation2);
 
             storyboard.Begin();
-            storyboard2.Begin();
             await Task.Delay(100);
             DispatcherQueue.TryEnqueue(() =>
             {
-                ImageCarousel.Visibility = hide ? Visibility.Collapsed : Visibility.Visible;
-                ImageCarouselPipsPager.Visibility = hide ? Visibility.Collapsed : Visibility.Visible;
+                ImageCarouselAndPostPanel.Visibility = hide ? Visibility.Collapsed : Visibility.Visible;
             });
         }
 
-        private void OpenSocMedLink(object sender, RoutedEventArgs e) =>
+        private void OpenSocMedLink(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(((Button)sender).Tag.ToString())) return;
+
             new Process()
             {
                 StartInfo = new ProcessStartInfo()
@@ -155,16 +176,17 @@ namespace CollapseLauncher.Pages
                     FileName = ((Button)sender).Tag.ToString()
                 }
             }.Start();
+        }
 
-        private void OpenImageLinkFromTag(object sender, PointerRoutedEventArgs e) =>
-            new Process()
-            {
-                StartInfo = new ProcessStartInfo()
-                {
-                    UseShellExecute = true,
-                    FileName = ((Image)sender).Tag.ToString()
-                }
-            }.Start();
+        private void OpenImageLinkFromTag(object sender, PointerRoutedEventArgs e)
+        {
+            SpawnWebView2.SpawnWebView2Window(((Image)sender).Tag.ToString());
+        }
+
+        private void OpenButtonLinkFromTag(object sender, RoutedEventArgs e)
+        {
+            SpawnWebView2.SpawnWebView2Window(((Button)sender).Tag.ToString());
+        }
 
         private void CheckIfRightSideProgress()
         {
@@ -201,53 +223,60 @@ namespace CollapseLauncher.Pages
                     GameInstallationState = GameInstallStateEnum.GameBroken;
                 else if (regionResourceProp.data.game.latest.version != gameIni.Config["General"]["game_version"].ToString())
                 {
-                    DispatcherQueue.TryEnqueue(() =>
-                    {
-                        UpdateGameBtn.Visibility = Visibility.Visible;
-                        StartGameBtn.Visibility = Visibility.Collapsed;
-                    });
+                    // Temporarily Disable RepairGameButton for Genshin
+                    if (CurrentRegion.IsGenshin ?? false)
+                        RepairGameButton.IsEnabled = false;
+                    UpdateGameBtn.Visibility = Visibility.Visible;
+                    StartGameBtn.Visibility = Visibility.Collapsed;
                     GameInstallationState = GameInstallStateEnum.NeedsUpdate;
                 }
                 else
                 {
                     if (regionResourceProp.data.pre_download_game != null)
                     {
-                        DispatcherQueue.TryEnqueue(() =>
+                        // Temporarily Disable RepairGameButton for Genshin
+                        if (CurrentRegion.IsGenshin ?? false)
+                            RepairGameButton.IsEnabled = false;
+                        InstallGameBtn.Visibility = Visibility.Collapsed;
+                        StartGameBtn.Visibility = Visibility.Visible;
+                        NotificationBar.Translation += Shadow48;
+                        NotificationBar.Closed += NotificationBar_Closed;
+                        NotificationBar.IsOpen = true;
+
+                        if (!IsPreDownloadCompleted())
                         {
-                            InstallGameBtn.Visibility = Visibility.Collapsed;
-                            StartGameBtn.Visibility = Visibility.Visible;
-                            NotificationBar.IsOpen = true;
+                            NotificationBar.Message = string.Format(Lang._HomePage.PreloadNotifSubtitle, regionResourceProp.data.pre_download_game.latest.version);
+                        }
+                        else
+                        {
+                            NotificationBar.Title = Lang._HomePage.PreloadNotifCompleteTitle;
+                            NotificationBar.Message = string.Format(Lang._HomePage.PreloadNotifCompleteSubtitle, regionResourceProp.data.pre_download_game.latest.version);
+                            NotificationBar.IsClosable = true;
+                            var content = new TextBlock();
+                            content.Text = Lang._HomePage.PreloadNotifIntegrityCheckBtn;
 
-                            if (!IsPreDownloadCompleted())
-                            {
-                                NotificationBar.Message = string.Format(Lang._HomePage.PreloadNotifSubtitle, regionResourceProp.data.pre_download_game.latest.version);
-                            }
-                            else
-                            {
-                                NotificationBar.Title = Lang._HomePage.PreloadNotifCompleteTitle;
-                                NotificationBar.Message = string.Format(Lang._HomePage.PreloadNotifCompleteSubtitle, regionResourceProp.data.pre_download_game.latest.version);
-                                NotificationBar.IsClosable = true;
-                                var content = new TextBlock();
-                                content.Text = Lang._HomePage.PreloadNotifIntegrityCheckBtn;
-
-                                DownloadPreBtn.Content = content;
-                            }
-                        });
+                            DownloadPreBtn.Content = content;
+                        }
 
                         GameInstallationState = GameInstallStateEnum.InstalledHavePreload;
                     }
                     else
                     {
-                        DispatcherQueue.TryEnqueue(() =>
-                        {
-                            InstallGameBtn.Visibility = Visibility.Collapsed;
-                            StartGameBtn.Visibility = Visibility.Visible;
-                        });
+                        // Temporarily Disable RepairGameButton for Genshin
+                        if (CurrentRegion.IsGenshin ?? false)
+                            RepairGameButton.IsEnabled = false;
+                        InstallGameBtn.Visibility = Visibility.Collapsed;
+                        StartGameBtn.Visibility = Visibility.Visible;
                         GameInstallationState = GameInstallStateEnum.Installed;
                     }
                 }
                 if (CurrentRegion.IsGenshin ?? false)
                     OpenCacheFolderButton.IsEnabled = false;
+
+                if (!(CurrentRegion.IsGenshin ?? false))
+                {
+                    CustomStartupArgs.Visibility = Visibility.Visible;
+                }
                 return;
             }
             GameInstallationState = GameInstallStateEnum.NotInstalled;
@@ -256,7 +285,10 @@ namespace CollapseLauncher.Pages
             OpenGameFolderButton.IsEnabled = false;
             OpenCacheFolderButton.IsEnabled = false;
             ConvertVersionButton.IsEnabled = false;
+            CustomArgsTextBox.IsEnabled = false;
         }
+
+        private void NotificationBar_Closed(InfoBar sender, InfoBarClosedEventArgs args) => sender.Translation -= Shadow48;
 
         private bool IsPreDownloadCompleted()
         {
@@ -273,40 +305,37 @@ namespace CollapseLauncher.Pages
 
         private async void CheckRunningGameInstance()
         {
-            while (true && !App.IsAppKilled)
+            await Task.Delay(1);
+            DispatcherQueue.TryEnqueue(async () =>
             {
-                while (App.IsGameRunning)
+                try
                 {
-                    DispatcherQueue.TryEnqueue(() =>
+                    while (true)
                     {
-                        if (App.IsAppKilled)
-                            return;
+                        while (App.IsGameRunning)
+                        {
+                            if (StartGameBtn.IsEnabled)
+                                LauncherBtn.Translation -= Shadow16;
 
-                        if (StartGameBtn.IsEnabled)
-                            LauncherBtn.Translation -= Shadow16;
+                            StartGameBtn.IsEnabled = false;
+                            StartGameBtn.Content = Lang._HomePage.StartBtnRunning;
+                            GameStartupSetting.IsEnabled = false;
 
-                        StartGameBtn.IsEnabled = false;
-                        StartGameBtn.Content = Lang._HomePage.StartBtnRunning;
-                        GameStartupSetting.IsEnabled = false;
-                    });
-                    await Task.Delay(500);
+                            await Task.Delay(100);
+                        }
+
+                        if (!StartGameBtn.IsEnabled)
+                            LauncherBtn.Translation += Shadow16;
+
+                        StartGameBtn.IsEnabled = true;
+                        StartGameBtn.Content = Lang._HomePage.StartBtn;
+                        GameStartupSetting.IsEnabled = true;
+
+                        await Task.Delay(100);
+                    }
                 }
-
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    if (App.IsAppKilled)
-                        return;
-
-                    if (!StartGameBtn.IsEnabled)
-                        LauncherBtn.Translation += Shadow16;
-
-                    StartGameBtn.IsEnabled = true;
-                    StartGameBtn.Content = Lang._HomePage.StartBtn;
-                    GameStartupSetting.IsEnabled = true;
-                });
-
-                await Task.Delay(500);
-            }
+                catch { return; }
+            });
         }
 
         private void AnimateGameRegSettingIcon_Start(object sender, PointerRoutedEventArgs e) => AnimatedIcon.SetState(this.GameRegionSettingIcon, "PointerOver");
@@ -453,8 +482,7 @@ namespace CollapseLauncher.Pages
             {
                 gameIni.Config = new IniFile();
                 gameIni.ConfigPath = iniPath;
-                gameIni.ConfigStream = new FileStream(iniPath, FileMode.Open, FileAccess.Read);
-                gameIni.Config.Load(gameIni.ConfigStream);
+                gameIni.Config.Load(gameIni.ConfigPath);
                 isExist = true;
 
                 return CheckExistingGameVerAndSet(targetPath, iniPath, isExist);
@@ -468,8 +496,7 @@ namespace CollapseLauncher.Pages
             {
                 gameIni.Config = new IniFile();
                 gameIni.ConfigPath = iniPath;
-                gameIni.ConfigStream = new FileStream(iniPath, FileMode.Open, FileAccess.Read);
-                gameIni.Config.Load(gameIni.ConfigStream);
+                gameIni.Config.Load(gameIni.ConfigPath);
                 isExist = true;
 
                 return CheckExistingGameVerAndSet(targetPath, iniPath, isExist);
@@ -537,6 +564,7 @@ namespace CollapseLauncher.Pages
                                     null,
                                 regionResourceProp.data.game.latest.version,
                                 CurrentRegion.ProtoDispatchKey,
+                                CurrentRegion.GameDispatchURL,
                                 CurrentRegion.GetRegServerNameID(),
                                 Path.GetFileNameWithoutExtension(CurrentRegion.GameExecutableName));
 
@@ -573,15 +601,15 @@ namespace CollapseLauncher.Pages
         string DownloadSizeString;
         string DownloadPerSizeString;
 
-        private void InstallerDownloadPreStatusChanged(object sender, HttpClientHelper._DownloadProgress e)
+        private void InstallerDownloadPreStatusChanged(object sender, DownloadEvent e)
         {
-            InstallDownloadSpeedString = SummarizeSizeSimple(e.CurrentSpeed);
-            InstallDownloadSizeString = SummarizeSizeSimple(e.DownloadedSize);
-            DownloadSizeString = SummarizeSizeSimple(e.TotalSizeToDownload);
+            InstallDownloadSpeedString = SummarizeSizeSimple(e.Speed);
+            InstallDownloadSizeString = SummarizeSizeSimple(e.SizeDownloaded);
+            DownloadSizeString = SummarizeSizeSimple(e.SizeToBeDownloaded);
             DispatcherQueue.TryEnqueue(() =>
             {
                 ProgressPreStatusSubtitle.Text = string.Format(Lang._Misc.PerFromTo, InstallDownloadSizeString, DownloadSizeString);
-                LogWrite($"{e.DownloadState}: {InstallDownloadSpeedString}", Hi3Helper.LogType.Empty, false, true);
+                LogWrite($"{e.State}: {InstallDownloadSpeedString}", Hi3Helper.LogType.Empty, false, true);
                 ProgressPreStatusFooter.Text = string.Format(Lang._Misc.Speed, InstallDownloadSpeedString);
                 ProgressPreTimeLeft.Text = string.Format(Lang._Misc.TimeRemainHMSFormat, e.TimeLeft);
                 progressPreBar.Value = Math.Round(e.ProgressPercentage, 2);
@@ -686,7 +714,6 @@ namespace CollapseLauncher.Pages
 
         private async Task<string> InstallGameDialogScratch()
         {
-            FolderPicker folderPicker = new FolderPicker();
             StorageFolder folder;
             string returnFolder = "";
 
@@ -700,10 +727,7 @@ namespace CollapseLauncher.Pages
                         isChoosen = true;
                         break;
                     case ContentDialogResult.Secondary:
-                        folder = null;
-                        folderPicker.FileTypeFilter.Add("*");
-                        WinRT.Interop.InitializeWithWindow.Initialize(folderPicker, InnerLauncherConfig.m_windowHandle);
-                        folder = await folderPicker.PickSingleFolderAsync();
+                        folder = await (m_window as MainWindow).GetFolderPicker();
 
                         if (folder != null)
                             if (IsUserHasPermission(returnFolder = folder.Path))
@@ -908,6 +932,7 @@ namespace CollapseLauncher.Pages
                                             null,
                                         regionResourceProp.data.game.latest.version,
                                         CurrentRegion.ProtoDispatchKey,
+                                        CurrentRegion.GameDispatchURL,
                                         CurrentRegion.GetRegServerNameID(),
                                         Path.GetFileNameWithoutExtension(CurrentRegion.GameExecutableName));
 
@@ -1031,6 +1056,7 @@ namespace CollapseLauncher.Pages
                                     CurrentRegion.ZipFileURL,
                                 regionResourceProp.data.game.latest.version,
                                 CurrentRegion.ProtoDispatchKey,
+                                CurrentRegion.GameDispatchURL,
                                 CurrentRegion.GetRegServerNameID(),
                                 Path.GetFileNameWithoutExtension(CurrentRegion.GameExecutableName));
 
@@ -1184,6 +1210,7 @@ namespace CollapseLauncher.Pages
                                     null,
                                 regionResourceProp.data.game.latest.version,
                                 CurrentRegion.ProtoDispatchKey,
+                                CurrentRegion.GameDispatchURL,
                                 CurrentRegion.GetRegServerNameID(),
                                 Path.GetFileNameWithoutExtension(CurrentRegion.GameExecutableName));
 
@@ -1258,6 +1285,29 @@ namespace CollapseLauncher.Pages
             }
 
             WatchOutputLog.Cancel();
+        }
+
+        public string CustomArgsValue
+        {
+            get => GetGameConfigValue("CustomArgs").ToString();
+            set => SetAndSaveGameConfigValue("CustomArgs", value);
+        }
+
+        private void ClickImageEventSpriteLink(object sender, PointerRoutedEventArgs e)
+        {
+            if ((sender as Image).Tag == null) return;
+            SpawnWebView2.SpawnWebView2Window((sender as Image).Tag.ToString());
+
+            /*
+            new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    UseShellExecute = true,
+                    FileName = (sender as Image).Tag.ToString()
+                }
+            }.Start();
+            */
         }
     }
 }

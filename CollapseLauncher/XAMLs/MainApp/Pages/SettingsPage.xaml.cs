@@ -19,42 +19,6 @@ namespace CollapseLauncher.Pages
 {
     public sealed partial class SettingsPage : Page
     {
-        public bool IsBGCustom
-        {
-            get
-            {
-                bool IsEnabled = GetAppConfigValue("UseCustomBG").ToBool();
-                string BGPath = GetAppConfigValue("CustomBGPath").ToString();
-                if (!string.IsNullOrEmpty(BGPath))
-                    BGPathDisplay.Text = BGPath;
-                else
-                    BGPathDisplay.Text = Lang._Misc.NotSelected;
-
-                BGSelector.IsEnabled = IsEnabled;
-                return IsEnabled;
-            }
-            set
-            {
-                SetAndSaveConfigValue("UseCustomBG", new IniValue(value));
-                if (!value)
-                {
-                    BGPathDisplay.Text = Lang._Misc.NotSelected;
-                    regionBackgroundProp.imgLocalPath = GetAppConfigValue("CurrentBackground").ToString();
-                    BackgroundImgChanger.ChangeBackground(regionBackgroundProp.imgLocalPath, false);
-                }
-                else
-                {
-                    string BGPath = GetAppConfigValue("CustomBGPath").ToString();
-                    if (string.IsNullOrEmpty(BGPath))
-                        regionBackgroundProp.imgLocalPath = AppDefaultBG;
-                    else
-                        regionBackgroundProp.imgLocalPath = BGPath;
-                    BackgroundImgChanger.ChangeBackground(regionBackgroundProp.imgLocalPath);
-                }
-                BGSelector.IsEnabled = value;
-            }
-        }
-
         public SettingsPage()
         {
             this.InitializeComponent();
@@ -70,22 +34,6 @@ namespace CollapseLauncher.Pages
             AppVersionTextBlock.Text = Version;
             CurrentVersion.Text = Version;
             GetLanguageList();
-            AppThemeSelection.SelectedIndex = (int)Enum.Parse<AppThemeMode>(GetAppConfigValue("ThemeMode").ToString());
-            DownloadThreadsNumBox.Value = GetAppConfigValue("DownloadThread").ToInt();
-            ExtractionThreadsNumBox.Value = GetAppConfigValue("ExtractionThread").ToInt();
-        }
-
-        public bool EnableConsole { get { return Hi3Helper.Logger.EnableConsole; } }
-
-        private void ConsoleToggle(object sender, RoutedEventArgs e)
-        {
-            if (((ToggleSwitch)sender).IsOn)
-                ShowConsoleWindow();
-            else
-                HideConsoleWindow();
-
-            SetAndSaveConfigValue("EnableConsole", ((ToggleSwitch)sender).IsOn);
-            InitLog(true, AppDataFolder);
         }
 
         private void GetLanguageList()
@@ -191,7 +139,6 @@ namespace CollapseLauncher.Pages
             UpdateAvailableStatus.Visibility = Visibility.Collapsed;
             UpToDateStatus.Visibility = Visibility.Collapsed;
             CheckUpdateBtn.IsEnabled = false;
-            CheckUpdateBtn.Content = "Checking...";
 
             ForceInvokeUpdate = true;
 
@@ -203,14 +150,13 @@ namespace CollapseLauncher.Pages
         {
             DispatcherQueue.TryEnqueue(() =>
             {
+                CheckUpdateBtn.IsEnabled = true;
                 if (e.IsUpdateAvailable)
                 {
                     UpdateLoadingStatus.Visibility = Visibility.Collapsed;
                     UpdateAvailableStatus.Visibility = Visibility.Visible;
                     UpToDateStatus.Visibility = Visibility.Collapsed;
-                    CheckUpdateBtn.IsEnabled = true;
                     UpdateAvailableLabel.Text = e.NewVersionName + (IsPreview ? " Preview" : " Stable");
-                    CheckUpdateBtn.Content = "Check Update";
                     LauncherUpdateInvoker.UpdateEvent -= LauncherUpdateInvoker_UpdateEvent;
                     return;
                 }
@@ -219,38 +165,9 @@ namespace CollapseLauncher.Pages
                     UpdateLoadingStatus.Visibility = Visibility.Collapsed;
                     UpdateAvailableStatus.Visibility = Visibility.Collapsed;
                     UpToDateStatus.Visibility = Visibility.Visible;
-                    CheckUpdateBtn.Content = "Check Update";
-                    CheckUpdateBtn.IsEnabled = false;
                     LauncherUpdateInvoker.UpdateEvent -= LauncherUpdateInvoker_UpdateEvent;
                 }
             });
-        }
-
-        bool IsFirstChangeThemeSelection = false;
-        private void ChangeThemeSelection(object sender, SelectionChangedEventArgs e)
-        {
-            SetAndSaveConfigValue("ThemeMode", Enum.GetName(typeof(AppThemeMode), (sender as RadioButtons).SelectedIndex));
-            if (IsAppThemeNeedRestart)
-                AppThemeSelectionWarning.Visibility = Visibility.Visible;
-
-            if (IsFirstChangeThemeSelection)
-                IsAppThemeNeedRestart = true;
-            IsFirstChangeThemeSelection = true;
-        }
-
-        bool IsFirstDownloadThreadsValue = false;
-        private void ChangeDownloadThreadsValue(NumberBox sender, NumberBoxValueChangedEventArgs args)
-        {
-            if (IsFirstDownloadThreadsValue)
-                SetAndSaveConfigValue("DownloadThread", (int)(double.IsNaN(sender.Value) ? 0 : sender.Value));
-            IsFirstDownloadThreadsValue = true;
-        }
-        bool IsFirstExtractThreadsValue = false;
-        private void ChangeExtractThreadsValue(NumberBox sender, NumberBoxValueChangedEventArgs args)
-        {
-            if (IsFirstExtractThreadsValue)
-                SetAndSaveConfigValue("ExtractionThread", (int)(double.IsNaN(sender.Value) ? 0 : sender.Value));
-            IsFirstExtractThreadsValue = true;
         }
 
         private void ClickTextLinkFromTag(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
@@ -306,6 +223,85 @@ namespace CollapseLauncher.Pages
                 IsAppLangNeedRestart = true;
             }
             EnableLanguageChange = true;
+        }
+
+        public bool IsBGCustom
+        {
+            get
+            {
+                bool IsEnabled = GetAppConfigValue("UseCustomBG").ToBool();
+                string BGPath = GetAppConfigValue("CustomBGPath").ToString();
+                if (!string.IsNullOrEmpty(BGPath))
+                    BGPathDisplay.Text = BGPath;
+                else
+                    BGPathDisplay.Text = Lang._Misc.NotSelected;
+
+                BGSelector.IsEnabled = IsEnabled;
+                return IsEnabled;
+            }
+            set
+            {
+                SetAndSaveConfigValue("UseCustomBG", new IniValue(value));
+                if (!value)
+                {
+                    BGPathDisplay.Text = Lang._Misc.NotSelected;
+                    regionBackgroundProp.imgLocalPath = GetAppConfigValue("CurrentBackground").ToString();
+                    BackgroundImgChanger.ChangeBackground(regionBackgroundProp.imgLocalPath, false);
+                }
+                else
+                {
+                    string BGPath = GetAppConfigValue("CustomBGPath").ToString();
+                    if (string.IsNullOrEmpty(BGPath))
+                        regionBackgroundProp.imgLocalPath = AppDefaultBG;
+                    else
+                        regionBackgroundProp.imgLocalPath = BGPath;
+                    BackgroundImgChanger.ChangeBackground(regionBackgroundProp.imgLocalPath);
+                }
+                BGSelector.IsEnabled = value;
+            }
+        }
+        public bool IsConsoleEnabled
+        {
+            get => GetAppConfigValue("EnableConsole").ToBool();
+            set
+            {
+                if (value)
+                    ShowConsoleWindow();
+                else
+                    HideConsoleWindow();
+
+                SetAndSaveConfigValue("EnableConsole", value);
+                InitLog(true, AppDataFolder);
+            }
+        }
+        public int CurrentThemeSelection
+        {
+            get
+            {
+                if (IsAppThemeNeedRestart)
+                    AppThemeSelectionWarning.Visibility = Visibility.Visible;
+
+                string AppTheme = GetAppConfigValue("ThemeMode").ToString();
+                object ThemeIndex;
+                bool IsParseSuccess = Enum.TryParse(typeof(AppThemeMode), AppTheme, out ThemeIndex);
+                return IsParseSuccess ? (int)ThemeIndex : -1;
+            }
+            set
+            {
+                SetAndSaveConfigValue("ThemeMode", Enum.GetName(typeof(AppThemeMode), value));
+                AppThemeSelectionWarning.Visibility = Visibility.Visible;
+                IsAppThemeNeedRestart = true;
+            }
+        }
+        public int CurrentAppThreadDownloadValue
+        {
+            get => GetAppConfigValue("DownloadThread").ToInt();
+            set => SetAndSaveConfigValue("DownloadThread", value);
+        }
+        public int CurrentAppThreadExtractValue
+        {
+            get => GetAppConfigValue("ExtractionThread").ToInt();
+            set => SetAndSaveConfigValue("ExtractionThread", value);
         }
     }
 }

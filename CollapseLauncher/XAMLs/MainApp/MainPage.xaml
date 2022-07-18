@@ -6,18 +6,20 @@
     xmlns:helper="using:Hi3Helper"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="{StaticResource PagesAcrylicBrush}"
     mc:Ignorable="d">
-
     <Page.Resources>
         <Thickness x:Key="NavigationViewContentMargin">0,48,0,0</Thickness>
         <Thickness x:Key="NavigationViewContentGridBorderThickness">0</Thickness>
         <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent"></SolidColorBrush>
+        <ThemeShadow x:Name="SharedShadow"/>
     </Page.Resources>
     <Grid x:Name="MainPageGrid">
         <Grid x:Name="Background" Visibility="Collapsed">
-            <Image x:Name="BackgroundBack" Source="Assets\BG\default.png" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.40"/>
-            <Image x:Name="BackgroundBackBuffer" Source="Assets\BG\default.png" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.40"/>
+            <Image x:Name="BackgroundBack" Source="Assets\BG\default.png" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0"/>
+            <Image x:Name="BackgroundBackBuffer" Source="Assets\BG\default.png" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0"/>
         </Grid>
+        <Grid x:Name="BackgroundAcrylicMask" Background="{StaticResource BackgroundMaskAcrylicBrush}" Visibility="Collapsed"/>
         <Border x:Name="AppTitleBar"
                 IsHitTestVisible="True"
                 VerticalAlignment="Top"
@@ -39,11 +41,11 @@
                     <TextBlock x:Name="AppTitle"
                     Text="Collapse Launcher"
                     VerticalAlignment="Center"
-                    Margin="12, 0, 0, 10"
+                    Margin="12,0,0,10"
                     Style="{StaticResource CaptionTextBlockStyle}" HorizontalAlignment="Left" />
                     <StackPanel VerticalAlignment="Top" Canvas.ZIndex="2" Margin="16,4,0,0" Orientation="Horizontal">
                         <ComboBox x:Name="ComboBoxGameRegion" PlaceholderText="Southeast Asia" Width="160" Canvas.ZIndex="2" SelectionChanged="EnableRegionChangeButton"/>
-                        <Button Content="Change" Margin="8,0,8,0" x:Name="ChangeRegionConfirmBtn" Style="{StaticResource AccentButtonStyle}" IsEnabled="False">
+                        <Button Content="{x:Bind helper:Locale.Lang._Misc.Change}" Margin="8,0,8,0" x:Name="ChangeRegionConfirmBtn" Style="{StaticResource AccentButtonStyle}" IsEnabled="False">
                             <Button.Flyout>
                                 <Flyout>
                                     <StackPanel>
@@ -65,22 +67,18 @@
             </Grid>
         </Border>
         <NavigationView x:Name="NavigationViewControl"
-            IsTitleBarAutoPaddingEnabled="False"
             IsBackButtonVisible="Collapsed"
-            IsSettingsVisible="false"
-            Header=""
-            DisplayModeChanged="NavigationViewControl_DisplayModeChanged"
-            Canvas.ZIndex="0" Visibility="Visible" IsPaneOpen="False" Background="{StaticResource NavigationBarBrush}"
+            IsSettingsVisible="true"
+            Margin="0,0,0,0"
+            PaneDisplayMode="LeftMinimal"
+            Visibility="Visible" IsPaneOpen="False"
+            Background="{StaticResource NavigationBarBrush}"
             ItemInvoked="NavView_ItemInvoked"
             Loaded="NavView_Loaded">
-            <NavigationView.MenuItems>
-                <!--<NavigationViewItem Icon="Home" Content="{x:Bind helper:Locale.Lang._HomePage.PageTitle}" Tag="launcher"/>-->
-            </NavigationView.MenuItems>
-
             <Grid Margin="0,0,0,0">
                 <Image x:Name="BackgroundFront" Source="Assets\BG\default.png" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0"/>
                 <Image x:Name="BackgroundFrontBuffer" Source="Assets\BG\default.png" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0"/>
-                <Frame x:Name="LauncherFrame" Width="1216" Height="674">
+                <Frame x:Name="LauncherFrame">
                     <Frame.ContentTransitions>
                         <TransitionCollection>
                             <NavigationThemeTransition/>
@@ -104,5 +102,57 @@
                 </StackPanel>
             </Grid>
         </NavigationView>
+        <Grid x:Name="WebView2Panel" Background="{StaticResource WebView2GridBackground}"
+              Shadow="{StaticResource SharedShadow}" Visibility="Collapsed"
+              Canvas.ZIndex="8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="24"/>
+                <RowDefinition Height="64"/>
+                <RowDefinition/>
+            </Grid.RowDefinitions>
+            <TextBlock x:Name="WebViewWindowTitle" Margin="16,12" Grid.Row="0" FontWeight="Bold" FontSize="13" Grid.RowSpan="2"/>
+            <Grid x:Name="WebViewNavPanel" Grid.Row="1" Margin="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="52"/>
+                    <ColumnDefinition/>
+                    <ColumnDefinition Width="44"/>
+                    <ColumnDefinition Width="44"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="WebViewBackBtn" Click="WebViewBackBtn_Click" IsEnabled="{x:Bind WebViewWindow.CanGoBack, Mode=OneWay}" Grid.Column="0" VerticalAlignment="Stretch" Style="{ThemeResource AccentButtonStyle}">
+                    <Button.Content>
+                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE112;" Height="16" FontSize="12"/>
+                    </Button.Content>
+                </Button>
+                <Button x:Name="WebViewForwardBtn" Click="WebViewForwardBtn_Click" IsEnabled="{x:Bind WebViewWindow.CanGoForward, Mode=OneWay}" Grid.Column="1" VerticalAlignment="Stretch" Style="{ThemeResource AccentButtonStyle}">
+                    <Button.Content>
+                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE111;" Height="16" FontSize="12"/>
+                    </Button.Content>
+                </Button>
+                <Button x:Name="WebViewReloadBtn" Grid.Column="2" VerticalAlignment="Stretch" HorizontalAlignment="Center" Style="{ThemeResource AccentButtonStyle}" Click="WebViewReloadBtn_Click">
+                    <Button.Content>
+                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE149;" Height="16" FontSize="12"/>
+                    </Button.Content>
+                </Button>
+                <Grid Grid.Column="3" Margin="8,0" CornerRadius="5">
+                    <TextBox x:Name="WebViewURLBox" Text="{x:Bind WebViewWindow.Source, Mode=OneWay}" IsReadOnly="True" />
+                    <ProgressBar x:Name="WebViewLoadingStatus" HorizontalAlignment="Stretch" VerticalAlignment="Bottom"/>
+                </Grid>
+                <Button x:Name="WebViewOpenExternalBtn" Grid.Column="4" VerticalAlignment="Stretch" HorizontalAlignment="Center" Click="WebViewOpenExternalBtn_Click">
+                    <Button.Content>
+                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE128;" Height="16" FontSize="12"/>
+                    </Button.Content>
+                </Button>
+                <Button x:Name="WebViewCloseBtn" Grid.Column="5" VerticalAlignment="Stretch" HorizontalAlignment="Center" Style="{ThemeResource AccentButtonStyle}" Click="WebViewCloseBtn_Click">
+                    <Button.Content>
+                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE10A;" Height="16" FontSize="12"/>
+                    </Button.Content>
+                </Button>
+            </Grid>
+            <WebView2 x:Name="WebViewWindow" Grid.Row="2" HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch" CoreWebView2Initialized="WebViewWindow_CoreWebView2Initialized"
+                NavigationStarting="WebViewWindow_PageLoading" NavigationCompleted="WebViewWindow_PageLoaded"/>
+        </Grid>
     </Grid>
 </Page>

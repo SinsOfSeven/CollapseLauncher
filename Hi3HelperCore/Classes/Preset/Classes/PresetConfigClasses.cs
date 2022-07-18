@@ -24,7 +24,9 @@ namespace Hi3Helper.Preset
             try
             {
                 List<SteamTool.AppInfo> AppList = SteamTool.GetSteamApps(SteamTool.GetSteamLibs());
-                return ConverterTool.NormalizePath(AppList.Where(x => x.Id == SteamGameID).Select(y => y.GameRoot).FirstOrDefault());
+                string ret = AppList.Where(x => x.Id == SteamGameID).Select(y => y.GameRoot).FirstOrDefault();
+                if (ret == null) return null;
+                return ConverterTool.NormalizePath(ret);
                 // returnval = (string)Registry.GetValue(SteamInstallRegistryLocation, "InstallLocation", null);
             }
             catch
@@ -73,6 +75,9 @@ namespace Hi3Helper.Preset
             try
             {
                 RegistryKey keys = Registry.CurrentUser.OpenSubKey(ConfigRegistryLocation);
+
+                if (keys == null) return FallbackLanguage;
+
                 foreach (string valueName in keys.GetValueNames())
                     if (valueName.Contains("MIHOYOSDK_NOTICE_LANGUAGE_"))
                         value = valueName;
@@ -135,6 +140,7 @@ namespace Hi3Helper.Preset
             {
                 string regValue, value = string.Empty;
                 RegistryKey keys = Registry.CurrentUser.OpenSubKey(ConfigRegistryLocation);
+                if (keys == null) return 0;
                 value = keys.GetValueNames().Where(x => x.Contains("GENERAL_DATA")).First();
                 regValue = Encoding.UTF8.GetString((byte[])keys.GetValue(value, "{}", RegistryValueOptions.None)).Replace("\0", string.Empty);
 
@@ -349,6 +355,7 @@ namespace Hi3Helper.Preset
         public string GameExecutableName { get; set; }
         public string ZipFileURL { get; set; }
 #nullable enable
+        public string? GameDispatchURL { get; set; }
         public string? ProtoDispatchKey { get; set; }
         public string? CachesListAPIURL { get; set; }
         public byte? CachesListGameVerID { get; set; }
@@ -358,9 +365,12 @@ namespace Hi3Helper.Preset
         public List<string> LanguageAvailable { get; set; }
         public bool? IsGenshin { get; set; }
         public bool? IsConvertible { get; set; }
+        public bool IsHideSocMedDesc { get; set; } = true;
         public List<string> ConvertibleTo { get; set; }
         public string ConvertibleCookbookURL { get; set; }
         public bool? UseRightSideProgress { get; set; }
+        public bool LauncherSpriteURLMultiLang { get; set; } = false;
+        public string LauncherSpriteURLMultiLangFallback { get; set; } = "en-us";
         public string LauncherSpriteURL { get; set; }
         public string LauncherResourceURL { get; set; }
         public string LauncherInfoURL { get; set; }

@@ -37,7 +37,5 @@ namespace CollapseLauncher
                 Console.ReadLine();
             }
         }
-
-        private Window m_window;
     }
 }

@@ -21,7 +21,7 @@ namespace CollapseLauncher
         public static string workingDir = Path.GetDirectoryName(execPath);
         public static string sourcePath = Path.Combine(workingDir, Path.GetFileName(execPath));
         public static string applyPath = Path.Combine(workingDir, $"ApplyUpdate.exe");
-        public static string applyElevatedPath = Path.Combine(workingDir, $"ApplyUpdate.Elevated.exe");
+        public static string applyElevatedPath = Path.Combine(workingDir, "_Temp", $"ApplyUpdate.exe");
         public static string elevatedPath = Path.Combine(workingDir, Path.GetFileNameWithoutExtension(sourcePath) + ".Elevated.exe");
 
         public UpdaterWindow()
@@ -46,7 +46,7 @@ namespace CollapseLauncher
         {
             try
             {
-                Updater updater = new Updater(m_arguments.Updater.AppPath, m_arguments.Updater.UpdateChannel.ToString().ToLower());
+                Updater updater = new Updater(m_arguments.Updater.AppPath, m_arguments.Updater.UpdateChannel.ToString().ToLower(), 4);
                 updater.UpdaterProgressChanged += Updater_UpdaterProgressChanged;
                 updater.UpdaterStatusChanged += Updater_UpdaterStatusChanged;
 
@@ -103,7 +103,9 @@ namespace CollapseLauncher
 
             // Check to see if customization is supported.
             // Currently only supported on Windows 11.
+#if !DISABLETRANSPARENT
             m_backDrop.SetBackdrop(BackdropType.DesktopAcrylic);
+#endif
             ExtendsContentIntoTitleBar = true;
 
             SetTitleBar(DragArea);
